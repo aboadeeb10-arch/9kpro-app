@@ -1,0 +1,74 @@
+name: Build APK
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: [ 'desktop/**', '.github/workflows/desktop.yml' ]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      # One permanent signing key (secrets KEYSTORE_B64 + KEYSTORE_PASSWORD): updates install over the old version and the device MAC never changes.
+      - name: Signing key
+        if: ${{ env.KEYSTORE_B64 != '' }}
+        env: { KEYSTORE_B64: "${{ secrets.KEYSTORE_B64 }}" }
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/9kpro.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/9kpro.jks" >> "$GITHUB_ENV"; echo "KEY_ALIAS=ninekpro" >> "$GITHUB_ENV"
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"; echo "KEY_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "Release key: permanent"
+      - name: Build
+        run: chmod +x gradlew && ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
+      # Google Play bundle (.aab) — only meaningful when signed with the permanent key.
+      - name: Build Play bundle
+        if: ${{ env.KEYSTORE_PATH != '' }}
+        run: ./gradlew bundleRelease --no-daemon
+      - name: Rename
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/9KProTV-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk out/9KProTV.apk
+          cp app/build/outputs/mapping/release/mapping.txt out/mapping.txt 2>/dev/null || true
+          cp app/build/outputs/bundle/release/app-release.aab out/9KProTV-play.aab 2>/dev/null || true
+          ls -la out
+      # Optional copy for the Actions page only (release + panel site are the real outputs). Kept 1 day; a full artifact quota must not fail the build.
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with: { name: 9KProTV-apk, path: out/9KProTV.apk, retention-days: 1 }
+      - name: Release (latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: 9K Pro TV — latest build
+          files: |
+            out/9KProTV.apk
+            out/9KProTV-play.aab
+            out/mapping.txt
+          prerelease: true
+      # Public download without a GitHub login: the APK is committed into the panel site (Vercel) → https://9kpro-panel.vercel.app/9KProTV.apk
+      # Needs a repo secret PANEL_REPO_TOKEN (fine-grained PAT with "Contents: read & write" on aboadeeb10-arch/9kpro-panel).
+      - name: Publish to panel site
+        if: ${{ env.PANEL_REPO_TOKEN != '' }}
+        env: { PANEL_REPO_TOKEN: "${{ secrets.PANEL_REPO_TOKEN }}" }
+        run: |
+          SIZE=$(stat -c %s out/9KProTV.apk); echo "APK size: $((SIZE/1048576)) MB"
+          if [ "$SIZE" -gt 99000000 ]; then echo "::error::APK is over GitHub's 100 MB file limit — cannot publish to the panel site"; exit 1; fi
+          git clone --depth 1 "https://x-access-token:${PANEL_REPO_TOKEN}@github.com/aboadeeb10-arch/9kpro-panel.git" panel
+          cd panel && git config user.name "9kpro-bot" && git config user.email "bot@ninekpro"
+          VC=$(grep -o 'versionCode = [0-9]*' ../app/build.gradle.kts | grep -o '[0-9]*'); VN=$(grep -o 'versionName = "[^"]*"' ../app/build.gradle.kts | cut -d'"' -f2)
+          for i in 1 2 3 4; do
+            git fetch origin main && git reset --hard origin/main
+            OLD=$(cat 9KProTV.version 2>/dev/null | cut -d' ' -f1); OLD=${OLD:-0}
+            if [ "$VC" -lt "$OLD" ]; then echo "panel already has versionCode $OLD (ours $VC) — not overwriting"; exit 0; fi
+            cp ../out/9KProTV.apk 9KProTV.apk && echo "$VC $VN ${{ github.sha }}" > 9KProTV.version && git add 9KProTV.apk 9KProTV.version
+            git commit -m "9K Pro TV APK v$VN ${{ github.sha }}" || { echo "no change"; exit 0; }
+            git push && exit 0
+            echo "push rejected (another build pushed first) — retry $i"; sleep 20
+          done
+          exit 1

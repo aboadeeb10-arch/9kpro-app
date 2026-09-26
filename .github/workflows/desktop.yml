@@ -1,0 +1,170 @@
+name: Build Desktop
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'desktop/**', '.github/workflows/desktop.yml' ]
+  workflow_dispatch:
+permissions:
+  contents: write
+env:
+  VLC_VER: 3.0.21
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bundle libVLC
+        shell: pwsh
+        run: |
+          $u = "https://download.videolan.org/pub/videolan/vlc/$env:VLC_VER/win64/vlc-$env:VLC_VER-win64.zip"
+          Invoke-WebRequest -Uri $u -OutFile vlc.zip
+          Expand-Archive vlc.zip -DestinationPath vlcx
+          $src = Get-ChildItem vlcx -Directory | Select-Object -First 1
+          $dst = "desktop/resources/windows-x64/vlc"
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item "$($src.FullName)/libvlc.dll" $dst
+          Copy-Item "$($src.FullName)/libvlccore.dll" $dst
+          Copy-Item "$($src.FullName)/plugins" "$dst/plugins" -Recurse
+          foreach ($d in @('gui','lua','visualization','services_discovery','control','meta_engine','mux','stream_out','access_output','video_splitter','keystore','notify','logger')) { Remove-Item "$dst/plugins/$d" -Recurse -Force -ErrorAction SilentlyContinue }
+          "VLC bundle: " + ((Get-ChildItem $dst -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB) + " MB"
+      - name: WiX on PATH
+        shell: pwsh
+        run: |
+          $w = Get-ChildItem "C:\Program Files (x86)" -Directory -Filter "WiX Toolset*" | Select-Object -First 1
+          if ($w) { "$($w.FullName)\bin" | Out-File -FilePath $env:GITHUB_PATH -Append; "WiX: $($w.FullName)" } else { "WiX not found" }
+      - name: Build MSI
+        shell: bash
+        run: chmod +x gradlew && ./gradlew -p desktop packageMsi --no-daemon --stacktrace
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out && cp desktop/build/compose/binaries/main/msi/*.msi out/9KProTV-Setup.msi && ls -la out
+      # Installers are ~140 MB (bundled VLC) — too big for the panel repo (GitHub 100 MB limit), so they live as
+      # release assets of the PUBLIC repo aboadeeb10-arch/9kpro-downloads (tag "desktop"). Needs secret DOWNLOADS_TOKEN
+      # (fine-grained PAT, Contents: read & write on that repo). Stable links: .../releases/download/desktop/<file>
+      # A release needs a commit to hang on: give the (possibly empty) downloads repo a README once, and drop stale draft releases.
+      - name: Prepare downloads repo
+        if: ${{ env.DOWNLOADS_TOKEN != '' }}
+        env: { DOWNLOADS_TOKEN: "${{ secrets.DOWNLOADS_TOKEN }}" }
+        shell: bash
+        run: |
+          R=aboadeeb10-arch/9kpro-downloads; H="Authorization: Bearer $DOWNLOADS_TOKEN"
+          if curl -s -H "$H" "https://api.github.com/repos/$R/contents/README.md" | grep -q '"sha"'; then echo "repo has content"; else
+            B=$(printf '# 9K Pro TV downloads\n\nInstallers for Windows and Mac are attached to the release tagged **desktop** (download links on the /app page).\n' | base64 | tr -d '\n')
+            curl -s -X PUT -H "$H" "https://api.github.com/repos/$R/contents/README.md" -d "{\"message\":\"init\",\"content\":\"$B\"}" | grep -o '"path": *"[^"]*"' || true
+          fi
+          for id in $(curl -s -H "$H" "https://api.github.com/repos/$R/releases?per_page=50" | python3 -c "import sys,json; print(' '.join(str(r['id']) for r in json.load(sys.stdin) if r.get('draft')))"); do echo "delete draft $id"; curl -s -o /dev/null -X DELETE -H "$H" "https://api.github.com/repos/$R/releases/$id"; done
+      - name: Upload installer (9kpro-downloads)
+        if: ${{ env.DOWNLOADS_TOKEN != '' }}
+        env: { DOWNLOADS_TOKEN: "${{ secrets.DOWNLOADS_TOKEN }}" }
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: aboadeeb10-arch/9kpro-downloads
+          token: ${{ secrets.DOWNLOADS_TOKEN }}
+          tag_name: desktop
+          name: 9K Pro TV for Windows / Mac
+          body: "Windows: 9KProTV-Setup.msi · Mac Apple Silicon: 9KProTV-mac-arm.dmg · Mac Intel: 9KProTV-mac-intel.dmg"
+          files: out/*
+      - name: No token
+        if: ${{ env.DOWNLOADS_TOKEN == '' }}
+        env: { DOWNLOADS_TOKEN: "${{ secrets.DOWNLOADS_TOKEN }}" }
+        shell: bash
+        run: echo "::warning::Secret DOWNLOADS_TOKEN is missing — installer built but not published. Create the public repo 9kpro-downloads and add the token."
+      # The small version file goes to the panel site so /app and the in-app updater know the newest build.
+      - name: Publish version to panel site
+        if: ${{ env.PANEL_REPO_TOKEN != '' && env.DOWNLOADS_TOKEN != '' }}
+        shell: bash
+        env: { PANEL_REPO_TOKEN: "${{ secrets.PANEL_REPO_TOKEN }}", DOWNLOADS_TOKEN: "${{ secrets.DOWNLOADS_TOKEN }}" }
+        run: |
+          VN=$(grep -o '^version = "[^"]*"' desktop/build.gradle.kts | cut -d'"' -f2)
+          for f in out/*; do S=$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f"); echo "$f: $((S/1048576)) MB"; done
+          git clone --depth 1 "https://x-access-token:${PANEL_REPO_TOKEN}@github.com/aboadeeb10-arch/9kpro-panel.git" panel
+          cd panel && git config user.name "9kpro-bot" && git config user.email "bot@ninekpro"
+          for i in 1 2 3 4 5 6; do
+            git fetch origin main && git reset --hard origin/main
+            echo "$VN ${{ github.sha }}" > 9KProTV-desktop.version
+            git add 9KProTV-desktop.version && { git commit -m "9K Pro TV desktop v$VN ${{ github.sha }}" || { echo "no change"; exit 0; }; }
+            git push && exit 0
+            echo "push rejected — retry $i"; sleep $((15 + RANDOM % 20))
+          done
+          exit 1
+
+  mac:
+    strategy:
+      matrix:
+        include:
+          - { os: macos-14, arch: arm, res: macos-arm64 }
+          - { os: macos-13, arch: intel, res: macos-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bundle libVLC
+        run: |
+          curl -sSL -o vlc.dmg "https://download.videolan.org/pub/videolan/vlc/$VLC_VER/macosx/vlc-$VLC_VER-universal.dmg"
+          hdiutil attach -nobrowse -quiet -mountpoint /tmp/vlcdmg vlc.dmg
+          DST=desktop/resources/${{ matrix.res }}/vlc; mkdir -p "$DST"
+          cp -R /tmp/vlcdmg/VLC.app/Contents/MacOS/lib "$DST/lib"
+          cp -R /tmp/vlcdmg/VLC.app/Contents/MacOS/plugins "$DST/plugins"
+          hdiutil detach -quiet /tmp/vlcdmg
+          cd "$DST/plugins" && rm -f *gui* *lua* *visual* *services_discovery* *stream_out* *mux_* *access_output* *video_splitter* *keystore* *notify* *goom* *projectm* *glspectrum* *vsxu* || true
+          cd - >/dev/null; echo "VLC bundle: $(du -sh $DST | cut -f1)"
+      - name: Build DMG
+        run: chmod +x gradlew && ./gradlew -p desktop packageDmg --no-daemon --stacktrace
+      - name: Collect
+        run: mkdir -p out && cp desktop/build/compose/binaries/main/dmg/*.dmg out/9KProTV-mac-${{ matrix.arch }}.dmg && ls -la out
+      # Installers are ~140 MB (bundled VLC) — too big for the panel repo (GitHub 100 MB limit), so they live as
+      # release assets of the PUBLIC repo aboadeeb10-arch/9kpro-downloads (tag "desktop"). Needs secret DOWNLOADS_TOKEN
+      # (fine-grained PAT, Contents: read & write on that repo). Stable links: .../releases/download/desktop/<file>
+      # A release needs a commit to hang on: give the (possibly empty) downloads repo a README once, and drop stale draft releases.
+      - name: Prepare downloads repo
+        if: ${{ env.DOWNLOADS_TOKEN != '' }}
+        env: { DOWNLOADS_TOKEN: "${{ secrets.DOWNLOADS_TOKEN }}" }
+        shell: bash
+        run: |
+          R=aboadeeb10-arch/9kpro-downloads; H="Authorization: Bearer $DOWNLOADS_TOKEN"
+          if curl -s -H "$H" "https://api.github.com/repos/$R/contents/README.md" | grep -q '"sha"'; then echo "repo has content"; else
+            B=$(printf '# 9K Pro TV downloads\n\nInstallers for Windows and Mac are attached to the release tagged **desktop** (download links on the /app page).\n' | base64 | tr -d '\n')
+            curl -s -X PUT -H "$H" "https://api.github.com/repos/$R/contents/README.md" -d "{\"message\":\"init\",\"content\":\"$B\"}" | grep -o '"path": *"[^"]*"' || true
+          fi
+          for id in $(curl -s -H "$H" "https://api.github.com/repos/$R/releases?per_page=50" | python3 -c "import sys,json; print(' '.join(str(r['id']) for r in json.load(sys.stdin) if r.get('draft')))"); do echo "delete draft $id"; curl -s -o /dev/null -X DELETE -H "$H" "https://api.github.com/repos/$R/releases/$id"; done
+      - name: Upload installer (9kpro-downloads)
+        if: ${{ env.DOWNLOADS_TOKEN != '' }}
+        env: { DOWNLOADS_TOKEN: "${{ secrets.DOWNLOADS_TOKEN }}" }
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: aboadeeb10-arch/9kpro-downloads
+          token: ${{ secrets.DOWNLOADS_TOKEN }}
+          tag_name: desktop
+          name: 9K Pro TV for Windows / Mac
+          body: "Windows: 9KProTV-Setup.msi · Mac Apple Silicon: 9KProTV-mac-arm.dmg · Mac Intel: 9KProTV-mac-intel.dmg"
+          files: out/*
+      - name: No token
+        if: ${{ env.DOWNLOADS_TOKEN == '' }}
+        env: { DOWNLOADS_TOKEN: "${{ secrets.DOWNLOADS_TOKEN }}" }
+        shell: bash
+        run: echo "::warning::Secret DOWNLOADS_TOKEN is missing — installer built but not published. Create the public repo 9kpro-downloads and add the token."
+      # The small version file goes to the panel site so /app and the in-app updater know the newest build.
+      - name: Publish version to panel site
+        if: ${{ env.PANEL_REPO_TOKEN != '' && env.DOWNLOADS_TOKEN != '' }}
+        shell: bash
+        env: { PANEL_REPO_TOKEN: "${{ secrets.PANEL_REPO_TOKEN }}", DOWNLOADS_TOKEN: "${{ secrets.DOWNLOADS_TOKEN }}" }
+        run: |
+          VN=$(grep -o '^version = "[^"]*"' desktop/build.gradle.kts | cut -d'"' -f2)
+          for f in out/*; do S=$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f"); echo "$f: $((S/1048576)) MB"; done
+          git clone --depth 1 "https://x-access-token:${PANEL_REPO_TOKEN}@github.com/aboadeeb10-arch/9kpro-panel.git" panel
+          cd panel && git config user.name "9kpro-bot" && git config user.email "bot@ninekpro"
+          for i in 1 2 3 4 5 6; do
+            git fetch origin main && git reset --hard origin/main
+            echo "$VN ${{ github.sha }}" > 9KProTV-desktop.version
+            git add 9KProTV-desktop.version && { git commit -m "9K Pro TV desktop v$VN ${{ github.sha }}" || { echo "no change"; exit 0; }; }
+            git push && exit 0
+            echo "push rejected — retry $i"; sleep $((15 + RANDOM % 20))
+          done
+          exit 1
+
