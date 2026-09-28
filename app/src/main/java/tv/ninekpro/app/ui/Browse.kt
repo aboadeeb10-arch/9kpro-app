@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -326,14 +327,16 @@ fun SeriesScreen(item: Item) {
 fun SearchScreen(initial: String) {
     val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current
     val pl = repo.activePlaylist ?: return
-    var q by remember { mutableStateOf(initial) }
+    var q by remember { mutableStateOf(initial.ifEmpty { repo.searchQ }) }
     val scope = rememberCoroutineScope()
+    val scroll = rememberScrollState(repo.searchScroll)
+    DisposableEffect(Unit) { onDispose { repo.searchQ = q; repo.searchScroll = scroll.value } }
     LaunchedEffect(pl.id) { for (k in Kind.values()) try { repo.content(pl, k) } catch (e: Throwable) {} }
     Column(Modifier.fillMaxSize()) {
         TopBar(stringResource(R.string.search))
-        Field(q, { q = it }, stringResource(R.string.search), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp))
+        Field(q, { q = it; repo.searchQ = it }, stringResource(R.string.search), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp))
         val res = remember(q) { repo.searchCached(pl, q) }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
             Kind.values().forEach { k ->
                 val list = res.filter { it.kind == k }.take(40)
                 if (list.isNotEmpty()) { SectionTitle(kindTitle(k).uppercase() + "  ·  " + list.size)

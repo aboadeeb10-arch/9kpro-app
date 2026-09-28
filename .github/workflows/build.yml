@@ -24,18 +24,23 @@ jobs:
           echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"; echo "KEY_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
           echo "Release key: permanent"
       - name: Build
-        run: chmod +x gradlew && ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
+        run: chmod +x gradlew && ./gradlew assembleSideloadDebug assembleSideloadRelease --no-daemon --stacktrace
       # Google Play bundle (.aab) — only meaningful when signed with the permanent key.
       - name: Build Play bundle
         if: ${{ env.KEYSTORE_PATH != '' }}
-        run: ./gradlew bundleRelease --no-daemon
+        run: ./gradlew bundlePlayRelease --no-daemon
+      - name: 16 KB page-size check (Play requirement for API 35+)
+        run: |
+          mkdir -p chk && cd chk && unzip -oq ../app/build/outputs/apk/sideload/release/app-sideload-release.apk 'lib/arm64-v8a/*' || true
+          BAD=0; for f in lib/arm64-v8a/*.so; do [ -f "$f" ] || continue; A=$(readelf -lW "$f" | awk '/LOAD/{print $NF}' | sort -u | tr '\n' ' '); echo "$f: $A"; case "$A" in *0x1000*) BAD=1;; esac; done
+          if [ "$BAD" = 1 ]; then echo "::error::a native library is only 4 KB aligned — Google Play will reject it"; exit 1; fi
       - name: Rename
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk out/9KProTV-debug.apk
-          cp app/build/outputs/apk/release/app-release.apk out/9KProTV.apk
-          cp app/build/outputs/mapping/release/mapping.txt out/mapping.txt 2>/dev/null || true
-          cp app/build/outputs/bundle/release/app-release.aab out/9KProTV-play.aab 2>/dev/null || true
+          cp app/build/outputs/apk/sideload/debug/app-sideload-debug.apk out/9KProTV-debug.apk
+          cp app/build/outputs/apk/sideload/release/app-sideload-release.apk out/9KProTV.apk
+          cp app/build/outputs/mapping/playRelease/mapping.txt out/mapping.txt 2>/dev/null || cp app/build/outputs/mapping/sideloadRelease/mapping.txt out/mapping.txt 2>/dev/null || true
+          cp app/build/outputs/bundle/playRelease/app-play-release.aab out/9KProTV-play.aab 2>/dev/null || true
           ls -la out
       # Optional copy for the Actions page only (release + panel site are the real outputs). Kept 1 day; a full artifact quota must not fail the build.
       - uses: actions/upload-artifact@v4

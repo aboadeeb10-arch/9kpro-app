@@ -358,6 +358,8 @@ class Repo(private val ctx: Context) {
     /** The live list the player was opened from — for channel up/down and number zapping. */
     @Volatile var liveContext: List<Item> = emptyList()
     /** Live tab UI state kept across navigation (Back from the player returns to the same category, channel and scroll). */
+    /** Search screen state kept across navigation (open a title → Back returns to the same results). */
+    @Volatile var searchQ: String = ""; @Volatile var searchScroll: Int = 0
     @Volatile var liveUiCat: String = "__all"; @Volatile var liveUiSel: Item? = null; @Volatile var liveUiList: Boolean = false; @Volatile var liveUiScroll: Int = 0
 
     // ---------------- parental lock ----------------

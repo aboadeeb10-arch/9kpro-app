@@ -267,6 +267,8 @@ class Repo {
     }
 
     @Volatile var liveContext: List<Item> = emptyList()
+    /** Search screen state kept across navigation (open a title → Back returns to the same results). */
+    @Volatile var searchQ: String = ""; @Volatile var searchScroll: Int = 0
     @Volatile var liveUiCat: String = "__all"; @Volatile var liveUiSel: Item? = null
     /** Movies/Series tab state kept across navigation: category id and grid scroll (index, offset) per kind. */
     val vodUiCat = HashMap<Kind, String>(); val vodUiScroll = HashMap<Kind, Pair<Int, Int>>()

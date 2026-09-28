@@ -6,17 +6,23 @@ plugins {
 
 android {
     namespace = "tv.ninekpro.app"
-    compileSdk = 34
+    compileSdk = 36
     defaultConfig {
         applicationId = "tv.ninekpro.app"
         minSdk = 23
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        targetSdk = 36
+        versionCode = 2
+        versionName = "1.0.1"
         buildConfigField("String", "PANEL_URL", "\"https://9kpro-panel.vercel.app\"")
         vectorDrawables.useSupportLibrary = true
         // Phones + Android TV boxes are ARM. Dropping x86 halves the APK (libVLC ships one 40 MB blob per CPU).
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
+    }
+    // Two distributions of the same app: "sideload" = /app APK (Crash Fix visible); "play" = Google Play bundle (Crash Fix hidden)
+    flavorDimensions += "dist"
+    productFlavors {
+        create("sideload") { dimension = "dist"; buildConfigField("boolean", "PLAY_BUILD", "false") }
+        create("play") { dimension = "dist"; buildConfigField("boolean", "PLAY_BUILD", "true") }
     }
     signingConfigs {
         create("release") {

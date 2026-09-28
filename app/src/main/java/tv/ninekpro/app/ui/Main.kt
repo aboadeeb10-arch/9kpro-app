@@ -169,7 +169,7 @@ fun HomePane(goTab: (Int) -> Unit) {
                 SmallTile(stringResource(R.string.change_playlist), Icons.AutoMirrored.Filled.PlaylistPlay, Modifier.weight(1f)) { nav.push(Screen.Playlists) }
                 SmallTile(stringResource(R.string.multi_screen), Icons.Default.GridView, Modifier.weight(1f)) { nav.push(Screen.Multi) }
                 SmallTile(stringResource(R.string.change_server), Icons.Default.SwapHoriz, Modifier.weight(1f)) { serverAsk = true }
-                if (acc != null && !anon) SmallTile(if (busy) "…" else stringResource(R.string.crash_fix), Icons.Default.Healing, Modifier.weight(1f), tint = Color(0xFFFF8A4C)) {
+                if (acc != null && !anon && !tv.ninekpro.app.BuildConfig.PLAY_BUILD) SmallTile(if (busy) "…" else stringResource(R.string.crash_fix), Icons.Default.Healing, Modifier.weight(1f), tint = Color(0xFFFF8A4C)) {
                     if (busy) return@SmallTile
                     if (crashActive) crashMsg = act.getString(R.string.crash_fix_active, repo.crashFixHoursLeft()) else crashAsk = true
                 }

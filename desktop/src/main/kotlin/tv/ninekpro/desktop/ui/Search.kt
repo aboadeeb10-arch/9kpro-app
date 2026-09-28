@@ -18,15 +18,17 @@ import tv.ninekpro.desktop.data.Kind
 @Composable
 fun SearchScreen() {
     val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current; val scope = rememberCoroutineScope()
-    var q by remember { mutableStateOf("") }; val fr = remember { FocusRequester() }
+    var q by remember { mutableStateOf(repo.searchQ) }; val fr = remember { FocusRequester() }
+    val scroll = rememberScrollState(repo.searchScroll)
     LaunchedEffect(Unit) { fr.requestFocus() }
+    DisposableEffect(Unit) { onDispose { repo.searchQ = q; repo.searchScroll = scroll.value } }
     val pl = repo.activePlaylist
     val res = remember(q) { if (pl == null) emptyList() else repo.searchCached(pl, q) }
     val pv by repo.profileVersion.collectAsState()
     Column(Modifier.fillMaxSize()) {
         BackRow(T("search"))
-        OutlinedTextField(q, { q = it }, modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().focusRequester(fr), singleLine = true, colors = fieldColors(c), placeholder = { Text(T("search")) })
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        OutlinedTextField(q, { q = it; repo.searchQ = it }, modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().focusRequester(fr), singleLine = true, colors = fieldColors(c), placeholder = { Text(T("search")) })
+        Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp)) {
             if (q.length < 2 && pl != null) {
                 val favKeys = repo.favorites(); val all = Kind.values().flatMap { repo.cachedContent(pl, it)?.items ?: emptyList() }.associateBy { it.key }
                 val favs = favKeys.mapNotNull { all[it] }
