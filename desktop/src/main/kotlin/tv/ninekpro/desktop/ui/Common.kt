@@ -51,6 +51,7 @@ sealed class Screen {
     object Search : Screen()
     object Guide : Screen()
     object Playlists : Screen()
+    object Speed : Screen()
 }
 
 class Nav {

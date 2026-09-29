@@ -75,6 +75,7 @@ fun main() {
                             is Screen.Search -> SearchScreen()
                             is Screen.Guide -> GuideScreen()
                             is Screen.Playlists -> PlaylistsScreen()
+                            is Screen.Speed -> SpeedTestScreen()
                         }
                         if (toast.isNotEmpty()) Text(toast, color = Color.White, fontSize = 14.sp, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 28.dp).background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(10.dp)).padding(horizontal = 16.dp, vertical = 10.dp))
                     }

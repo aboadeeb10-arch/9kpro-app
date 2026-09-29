@@ -215,6 +215,17 @@
     <string name="speed_verdict_hd">טוב ל-HD</string>
     <string name="speed_verdict_4k">מצוין — מוכן ל-4K</string>
     <string name="speed_fail">לא ניתן להגיע לשרת</string>
+    <string name="speed_internet">מהירות אינטרנט</string>
+    <string name="speed_server">השרת שלך</string>
+    <string name="speed_jitter">תנודתיות</string>
+    <string name="speed_again">בדוק שוב</string>
+    <string name="speed_no_internet">אין אינטרנט — בדוק את ה-Wi-Fi או חבילת הגלישה</string>
+    <string name="speed_server_ok">השידור עובד כרגיל</string>
+    <string name="speed_server_bad">לא התקבל שידור — נסה שרת אחר</string>
+    <string name="speed_step_ping">תגובת השרת</string>
+    <string name="speed_step_down">מהירות אינטרנט</string>
+    <string name="speed_step_stream">שידור מהשרת</string>
+    <string name="speed_hint">מודד את קו האינטרנט ובודק שהשרת שלך מספק וידאו. לוקח כ-15 שניות.</string>
     <string name="record">הקלטה</string>
     <string name="recording">מקליט…</string>
     <string name="stop_recording">עצור</string>

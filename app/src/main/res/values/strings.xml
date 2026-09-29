@@ -216,6 +216,17 @@
     <string name="speed_verdict_hd">Good for HD</string>
     <string name="speed_verdict_4k">Excellent — 4K ready</string>
     <string name="speed_fail">Could not reach the server</string>
+    <string name="speed_internet">Internet speed</string>
+    <string name="speed_server">Your server</string>
+    <string name="speed_jitter">jitter</string>
+    <string name="speed_again">Test again</string>
+    <string name="speed_no_internet">No internet — check the Wi-Fi or data connection</string>
+    <string name="speed_server_ok">Streams play normally</string>
+    <string name="speed_server_bad">No stream received — try another server</string>
+    <string name="speed_step_ping">Server answer</string>
+    <string name="speed_step_down">Internet speed</string>
+    <string name="speed_step_stream">Server stream</string>
+    <string name="speed_hint">Measures your internet line and checks that your server delivers video. Takes about 15 seconds.</string>
     <string name="record">Record</string>
     <string name="recording">Recording…</string>
     <string name="stop_recording">Stop</string>

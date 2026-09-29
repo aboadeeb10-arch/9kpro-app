@@ -197,31 +197,3 @@ fun ToggleRow(text: String, value: Boolean, onChange: (Boolean) -> Unit) {
 }
 
 
-/** Speed test: pings the current host, then downloads 8 s of the first live channel and reports Mbps + a plain verdict. */
-@Composable
-fun SpeedTestPanel() {
-    val repo = LocalRepo.current; val c = LocalColors.current; val scope = rememberCoroutineScope()
-    var running by remember { mutableStateOf(false) }; var ping by remember { mutableStateOf(-1L) }; var mbps by remember { mutableStateOf(-1.0) }; var err by remember { mutableStateOf("") }; var host by remember { mutableStateOf("") }
-    SectionTitle(stringResource(R.string.speed_test).uppercase())
-    Text(host, color = c.muted, fontSize = 12.sp); Gap(8)
-    if (ping >= 0) Text(stringResource(R.string.speed_ping) + ": " + ping + " ms", color = c.text, fontSize = 16.sp)
-    if (mbps >= 0) { Text(stringResource(R.string.speed_download) + ": " + String.format(java.util.Locale.US, "%.1f", mbps) + " Mbps", color = c.text, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-        Text(stringResource(when { mbps < 3 -> R.string.speed_verdict_bad; mbps < 8 -> R.string.speed_verdict_sd; mbps < 25 -> R.string.speed_verdict_hd; else -> R.string.speed_verdict_4k }), color = if (mbps < 3) Color(0xFFFF6B7A) else c.accent, fontSize = 14.sp) }
-    if (err.isNotEmpty()) Text(err, color = Color(0xFFFF6B7A), fontSize = 14.sp)
-    if (running) Text(stringResource(R.string.speed_testing), color = c.muted, fontSize = 14.sp)
-    Gap(10)
-    BigButton(stringResource(R.string.speed_start), Icons.Default.Speed) { if (running) return@BigButton; running = true; err = ""; ping = -1; mbps = -1.0
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try { val pl = repo.activePlaylist ?: throw Exception("no playlist"); val h = repo.host(pl); host = h.replace(Regex("^https?://"), "")
-                val t0 = System.currentTimeMillis(); repo.xtream.ping(h); ping = System.currentTimeMillis() - t0
-                val item = repo.content(pl, Kind.LIVE).items.firstOrNull() ?: throw Exception("no channel"); val url = repo.streamUrl(pl, item, ts = true)
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS).readTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
-                val resp = client.newCall(okhttp3.Request.Builder().url(url).header("User-Agent", "9KProTV/1.0").build()).execute()
-                val body = resp.body ?: throw Exception("HTTP " + resp.code); val ins = body.byteStream(); val buf = ByteArray(64 * 1024); var total = 0L; val start = System.currentTimeMillis()
-                while (System.currentTimeMillis() - start < 8000) { val n = ins.read(buf); if (n < 0) break; total += n; if (System.currentTimeMillis() - start > 1500) mbps = total * 8.0 / 1e6 / ((System.currentTimeMillis() - start) / 1000.0) }
-                try { ins.close(); resp.close() } catch (e: Exception) {}
-                val secs = (System.currentTimeMillis() - start) / 1000.0; mbps = if (secs > 0) total * 8.0 / 1e6 / secs else 0.0
-            } catch (e: Throwable) { err = "✕ " + (e.message ?: "error") }
-            running = false
-        } }
-}

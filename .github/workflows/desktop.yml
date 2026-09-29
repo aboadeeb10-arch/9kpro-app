@@ -4,6 +4,11 @@ on:
     branches: [ main ]
     paths: [ 'desktop/**', '.github/workflows/desktop.yml' ]
   workflow_dispatch:
+    inputs:
+      mac:
+        description: 'Also build Mac DMGs (10x minutes) — owner decision, off by default'
+        type: boolean
+        default: false
 permissions:
   contents: write
 env:
@@ -92,7 +97,9 @@ jobs:
           done
           exit 1
 
+  # Mac builds are PAUSED by owner decision (macOS minutes cost 10x). Run only by manual dispatch with the 'mac' box ticked.
   mac:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mac == true }}
     strategy:
       matrix:
         include:

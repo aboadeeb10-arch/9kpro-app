@@ -51,6 +51,7 @@ fun SettingsScreen(onTheme: (String) -> Unit, onLang: (String) -> Unit) {
             item { STile(Icons.Default.Lock, s("parental_onoff"), if (repo.prefs.parentalOn) "ON" else "OFF") { if (repo.prefs.pin.isEmpty()) pinAsk = true else { pin = ""; pinAsk = true } } }
             item { STile(Icons.Default.Refresh, s("update_now"), s("update_hint")) { repo.forceReload(); win.toast(Strings.get(lang, "refreshing")) } }
             item { STile(Icons.Default.History, s("clear_history"), "") { repo.prefs.profile = repo.prefs.profile.apply { remove("resume") }; repo.profileVersion.value++; win.toast("OK") } }
+            item { STile(Icons.Default.Speed, s("speed_test"), s("speed_hint").take(40)) { nav.push(Screen.Speed) } }
             item { STile(Icons.Default.SystemUpdate, s("app_version"), AppInfo.VERSION + " · " + (Updater.status.ifEmpty { "" })) { Updater.checkNow(repo.prefs) { win.toast(it) } } }
             item { STile(Icons.Default.Logout, s("logout"), account?.username ?: "") { repo.logout(); VlcPlayer.shared.stop(); nav.reset(Screen.Login) } }
             item { STile(Icons.Default.PowerSettingsNew, s("exit"), "") { win.exit() } }

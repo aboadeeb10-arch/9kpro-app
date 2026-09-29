@@ -215,6 +215,17 @@
     <string name="speed_verdict_hd">جيد لـ HD</string>
     <string name="speed_verdict_4k">ممتاز — جاهز لـ 4K</string>
     <string name="speed_fail">تعذر الوصول إلى السيرفر</string>
+    <string name="speed_internet">سرعة الإنترنت</string>
+    <string name="speed_server">سيرفرك</string>
+    <string name="speed_jitter">تذبذب</string>
+    <string name="speed_again">أعد الاختبار</string>
+    <string name="speed_no_internet">لا يوجد إنترنت — تحقق من الواي فاي أو بيانات الهاتف</string>
+    <string name="speed_server_ok">البث يعمل بشكل طبيعي</string>
+    <string name="speed_server_bad">لم يصل أي بث — جرّب سيرفراً آخر</string>
+    <string name="speed_step_ping">استجابة السيرفر</string>
+    <string name="speed_step_down">سرعة الإنترنت</string>
+    <string name="speed_step_stream">بث السيرفر</string>
+    <string name="speed_hint">يقيس سرعة خط الإنترنت ويتأكد أن سيرفرك يرسل الفيديو. يستغرق حوالي 15 ثانية.</string>
     <string name="record">تسجيل</string>
     <string name="recording">جارٍ التسجيل…</string>
     <string name="stop_recording">إيقاف</string>
