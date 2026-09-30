@@ -29,13 +29,15 @@ import androidx.compose.ui.text.font.FontVariation
 import tv.ninekpro.app.R
 
 /** Rounded friendly font matching the smile TV logo (variable Nunito). */
-val SmileFont: FontFamily = FontFamily(
+/** Nunito is a VARIABLE font. Android 8.0+ handles it (weight axes); Android 6.x/7.x boxes throw "Could not load font" at the first draw even for a
+ *  plain load (crash on open, seen on Amlogic AOSP 7.1.2) — so below API 26 the app uses the system font. */
+val SmileFont: FontFamily = if (android.os.Build.VERSION.SDK_INT >= 26) FontFamily(
     Font(R.font.nunito, FontWeight.Normal, variationSettings = FontVariation.Settings(FontVariation.weight(400))),
     Font(R.font.nunito, FontWeight.Medium, variationSettings = FontVariation.Settings(FontVariation.weight(500))),
     Font(R.font.nunito, FontWeight.SemiBold, variationSettings = FontVariation.Settings(FontVariation.weight(600))),
     Font(R.font.nunito, FontWeight.Bold, variationSettings = FontVariation.Settings(FontVariation.weight(700))),
     Font(R.font.nunito, FontWeight.ExtraBold, variationSettings = FontVariation.Settings(FontVariation.weight(800))),
-)
+) else FontFamily.Default   // 6.x/7.x boxes cannot parse the variable TTF at all (still "Could not load font" when loaded plainly) → system font there
 
 fun parseColor(hex: String, fallback: Color): Color = try {
     val h = hex.trim().removePrefix("#"); if (h.length != 6) fallback else Color(("ff$h").toLong(16))

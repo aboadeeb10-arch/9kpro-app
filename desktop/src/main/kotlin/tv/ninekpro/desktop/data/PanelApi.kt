@@ -9,7 +9,7 @@ import java.util.concurrent.TimeUnit
 
 object AppInfo {
     const val PANEL_URL = "https://9kpro-panel.vercel.app"
-    const val VERSION = "1.0.2"
+    const val VERSION = "1.0.3"
     /** Installers are release assets of the public downloads repo (no size limit). */
     const val DOWNLOADS_URL = "https://github.com/aboadeeb10-arch/9kpro-downloads/releases/download/desktop/"
     val platform: String get() = if (AppDirs.isWindows) "windows" else if (AppDirs.isMac) "mac" else "linux"

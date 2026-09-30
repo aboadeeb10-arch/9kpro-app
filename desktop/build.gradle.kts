@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "tv.ninekpro"
-version = "1.0.2"   // desktop line: MSI/DMG need major >= 1
+version = "1.0.3"   // desktop line: MSI/DMG need major >= 1
 
 kotlin { jvmToolchain(17) }
 

@@ -38,7 +38,7 @@ class Repo {
             val pls = (0 until lines.length()).map { i ->
                 val l = lines.getJSONObject(i)
                 val hosts = l.optJSONArray("hosts")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
-                Playlist(id = "p" + i + "_" + l.optString("user"), name = l.optString("name"), kind = "xtream", hosts = hosts, user = l.optString("user"), pass = l.optString("pass"), panel = l.optString("panel"), trial = l.optBoolean("trial"), exp = l.optString("exp"), fromPanel = true, protect = l.optBoolean("protect"))
+                Playlist(id = "p" + i + "_" + l.optString("user").ifEmpty { hosts.firstOrNull()?.hashCode()?.toString() ?: "" }, name = l.optString("name"), kind = if (l.optString("kind") == "m3u") "m3u" else "xtream", hosts = hosts, user = l.optString("user"), pass = l.optString("pass"), panel = l.optString("panel"), trial = l.optBoolean("trial"), exp = l.optString("exp"), fromPanel = true, protect = l.optBoolean("protect"))
             }
             for (pl in pls) { val best = pl.hosts.firstOrNull() ?: continue; val cur = hostFor[pl.id]; if (cur != null && cur != xtream.baseUrl(best)) { hostFor[pl.id] = xtream.baseUrl(best); cache.keys.filter { it.startsWith(pl.id + ":") }.forEach { cache.remove(it) } } }
             prefs.panelPlaylists = pls
@@ -59,8 +59,8 @@ class Repo {
     private fun addExtraLogin(j: JSONObject) {
         val lines = j.optJSONArray("lines") ?: return
         val have = playlists.value.map { it.user }.toSet()
-        val add = (0 until lines.length()).map { lines.getJSONObject(it) }.filter { it.optString("user").isNotEmpty() && it.optString("user") !in have }.map { l ->
-            Playlist(id = "x" + l.optString("user") + "_" + (System.currentTimeMillis() % 100000), name = l.optString("name").ifEmpty { l.optString("user") }, kind = "xtream",
+        val add = (0 until lines.length()).map { lines.getJSONObject(it) }.filter { (it.optString("kind") == "m3u" || it.optString("user").isNotEmpty()) && it.optString("user") !in have }.map { l ->
+            Playlist(id = "x" + l.optString("user") + "_" + (System.currentTimeMillis() % 100000), name = l.optString("name").ifEmpty { l.optString("user") }, kind = if (l.optString("kind") == "m3u") "m3u" else "xtream",
                 hosts = l.optJSONArray("hosts")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(), user = l.optString("user"), pass = l.optString("pass"), panel = l.optString("panel"),
                 trial = l.optBoolean("trial"), exp = l.optString("exp"), fromPanel = false, protect = l.optBoolean("protect")) }
         val tk = j.optString("token"); if (tk.isNotEmpty()) scope.launch { try { panel.post("logout", tokenOverride = tk) } catch (e: Exception) {} }
