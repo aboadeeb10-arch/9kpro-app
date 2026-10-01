@@ -73,6 +73,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -127,6 +129,8 @@ fun ExoScreen(s: Screen.Play, onFallbackToVlc: () -> Unit) {
     val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current; val act = LocalActivity.current
     val scope = rememberCoroutineScope()
     var controls by remember { mutableStateOf(s.kind != Kind.LIVE) }
+    var lastActivity by remember { mutableStateOf(System.currentTimeMillis()) }
+    val playFocus = remember { FocusRequester() }
     var playing by remember { mutableStateOf(true) }
     var pos by remember { mutableStateOf(0L) }; var dur by remember { mutableStateOf(0L) }
     var err by remember { mutableStateOf("") }
@@ -222,11 +226,11 @@ fun ExoScreen(s: Screen.Play, onFallbackToVlc: () -> Unit) {
         }
     }
     LaunchedEffect(Unit) {
-        var hideAt = System.currentTimeMillis() + 4000; var lastSave = 0L
+        var lastSave = 0L
         while (true) {
             pos = player.currentPosition; dur = player.duration.coerceAtLeast(0); clock = clockText(repo.prefs.timeFormat == "24")
-            if (controls && playing && System.currentTimeMillis() > hideAt) controls = false
-            if (!controls) hideAt = System.currentTimeMillis() + 4000
+            // the bar hides 5 s after the LAST remote/touch activity (not 4 s after it appeared) — a viewer moving between buttons keeps it open
+            if (controls && playing && sheet.isEmpty() && System.currentTimeMillis() - lastActivity > 5000) controls = false
             if (s.kind != Kind.LIVE && !s.key.startsWith("cu:") && dur > 0 && System.currentTimeMillis() - lastSave > 15000) { lastSave = System.currentTimeMillis()
                 repo.saveResume(ResumeEntry(s.key, s.title, s.kind.name, s.image, pos, dur, lastSave, if (s.episode != null && s.playlist != null) episodeExtra(s.playlist, s.episode, s.seriesName) else if (s.item != null && s.playlist != null) itemExtra(s.playlist, s.item) else "")) }
             if (s.episode != null && dur > 0 && dur - pos < 12_000 && nextCountdown < 0) nextCountdown = 10
@@ -239,23 +243,24 @@ fun ExoScreen(s: Screen.Play, onFallbackToVlc: () -> Unit) {
     val subPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) { try { act.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) {}; subUri = uri; load(url, player.currentPosition) } }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
+    LaunchedEffect(controls) { kotlinx.coroutines.delay(60); try { if (controls) playFocus.requestFocus() else focus.requestFocus() } catch (e: Exception) { try { focus.requestFocus() } catch (e2: Exception) {} } }
     PauseInBackground(onStop = { try { player.pause() } catch (e: Exception) {} }, onStart = { try { if (!ask && err.isEmpty()) player.play() } catch (e: Exception) {} })
     val subColor = when (repo.prefs.subColor) { "yellow" -> Color.Yellow; "cyan" -> Color.Cyan; else -> Color.White }
 
-    Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(focus).onKeyEvent { ev ->
+    Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(focus).onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown) lastActivity = System.currentTimeMillis(); false }.focusable().onKeyEvent { ev ->
         if (ev.type != KeyEventType.KeyDown) return@onKeyEvent false
         when (ev.key) {
-            Key.DirectionCenter, Key.Enter, Key.MediaPlayPause -> { if (sideList) false else if (!controls) { if (cur.kind == Kind.LIVE) { infoUntil = System.currentTimeMillis() + 5000; controls = true } else controls = true; true } else false }
+            Key.DirectionCenter, Key.Enter, Key.MediaPlayPause -> { if (sideList) false else if (!controls) { if (cur.kind == Kind.LIVE) { infoUntil = System.currentTimeMillis() + 5000; controls = true } else controls = true; true } else if (ev.key == Key.MediaPlayPause) { if (player.isPlaying) player.pause() else player.play(); true } else false }
             Key.MediaPlay -> { player.play(); true }
             Key.MediaPause -> { player.pause(); true }
             Key.DirectionLeft, Key.MediaRewind -> { if (sideList) false else if (cur.kind == Kind.LIVE && !controls) { sideList = true; true } else if (!controls && cur.kind != Kind.LIVE) { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)); true } else false }
             Key.DirectionRight, Key.MediaFastForward -> { if (sideList) { sideList = false; true } else if (!controls && cur.kind != Kind.LIVE) { player.seekTo(player.currentPosition + 10_000); true } else false }
-            Key.DirectionUp -> { if (sideList) false else if (cur.kind == Kind.LIVE && !controls) { zapDelta(1); true } else { controls = true; true } }
-            Key.DirectionDown -> { if (sideList) false else if (cur.kind == Kind.LIVE && !controls) { zapDelta(-1); true } else { controls = true; true } }
+            Key.DirectionUp -> { if (sideList) false else if (cur.kind == Kind.LIVE && !controls) { zapDelta(1); true } else if (!controls) { controls = true; true } else false }   // bar open: let focus move between the bottom bar and the top bar
+            Key.DirectionDown -> { if (sideList) false else if (cur.kind == Kind.LIVE && !controls) { zapDelta(-1); true } else if (!controls) { controls = true; true } else false }
             Key.ChannelUp -> { zapDelta(1); true }
             Key.ChannelDown -> { zapDelta(-1); true }
             Key.Menu -> { controls = true; true }
-            Key.Back, Key.Escape -> { if (sideList) { sideList = false; true } else false }
+            Key.Back, Key.Escape -> { if (sideList) { sideList = false; true } else if (controls && cur.kind != Kind.LIVE) { controls = false; true } else false }   // first Back closes the bar, second Back leaves the player
             Key.Zero, Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight, Key.Nine -> {
                 if (cur.kind != Kind.LIVE) false else { val d = listOf(Key.Zero, Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight, Key.Nine).indexOf(ev.key); numBuf = (numBuf + d).takeLast(4); numAt = System.currentTimeMillis(); infoUntil = numAt + 2500; true }
             }
@@ -265,7 +270,7 @@ fun ExoScreen(s: Screen.Play, onFallbackToVlc: () -> Unit) {
         AndroidView(factory = { ctx -> PlayerView(ctx).apply { useController = false; this.player = player; setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS); setKeepContentOnPlayerReset(true)
             subtitleView?.setStyle(CaptionStyleCompat(subColor.hashCode(), 0x00000000, 0, CaptionStyleCompat.EDGE_TYPE_OUTLINE, Color.Black.hashCode(), null)); subtitleView?.setFractionalTextSize(0.0533f * repo.prefs.subtitleScale); playerViewRef = this } },
             onRelease = { it.player = null }, update = { it.resizeMode = resizeMode }, modifier = Modifier.fillMaxSize()
-                .pointerInput(cur.kind) { detectTapGestures(onTap = { if (cur.kind == Kind.LIVE) { infoUntil = System.currentTimeMillis() + 5000 }; controls = !controls },
+                .pointerInput(cur.kind) { detectTapGestures(onTap = { lastActivity = System.currentTimeMillis(); if (cur.kind == Kind.LIVE) { infoUntil = System.currentTimeMillis() + 5000 }; controls = !controls },
                     onDoubleTap = { off -> if (cur.kind != Kind.LIVE) { val fwd = off.x > size.width / 2; player.seekTo((player.currentPosition + if (fwd) 10_000 else -10_000).coerceAtLeast(0)); flash(if (fwd) "⏩ +10s" else "⏪ −10s") } }) }
                 .pointerInput(cur.kind) {
                     // phone gestures: vertical swipe = channel up/down (live) or brightness (left) / volume (right) (VOD); horizontal drag = seek (VOD)
@@ -350,7 +355,7 @@ fun ExoScreen(s: Screen.Play, onFallbackToVlc: () -> Unit) {
                     Spacer(Modifier.width(10.dp)); Text(fmtTime(dur), color = Color.White, fontSize = 12.sp)
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    PBtn(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) stringResource(R.string.pause) else stringResource(R.string.play), big = true) { if (player.isPlaying) player.pause() else player.play() }
+                    PBtn(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) stringResource(R.string.pause) else stringResource(R.string.play), big = true, modifier = Modifier.focusRequester(playFocus)) { if (player.isPlaying) player.pause() else player.play() }
                     if (cur.kind != Kind.LIVE) { PBtn(Icons.Default.Replay10, "-10s") { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)) }; PBtn(Icons.Default.Forward10, "+10s") { player.seekTo(player.currentPosition + 10_000) } }
                     if (s.episode != null) PBtn(Icons.Default.SkipNext, stringResource(R.string.next_episode)) { playNext(repo, nav, s) }
                     if (cur.kind == Kind.LIVE) { PBtn(Icons.AutoMirrored.Filled.List, stringResource(R.string.channels)) { sideList = true; controls = false }
@@ -401,9 +406,9 @@ fun ExoScreen(s: Screen.Play, onFallbackToVlc: () -> Unit) {
 
 /** One player-bar button: icon over a tiny label, focusable on TV. */
 @Composable
-fun PBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, big: Boolean = false, onClick: () -> Unit) {
+fun PBtn(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, big: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val c = LocalColors.current
-    Column(Modifier.clip(RoundedCornerShape(10.dp)).tvFocus(c.accent, 10).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 4.dp).width(if (big) 60.dp else 54.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier.clip(RoundedCornerShape(10.dp)).tvFocus(c.accent, 10).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 4.dp).width(if (big) 60.dp else 54.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(icon, null, tint = Color.White, modifier = Modifier.size(if (big) 34.dp else 24.dp)); Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
