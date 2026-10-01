@@ -17,6 +17,14 @@ import java.io.File
  * The one place the UI reads from. Holds the session (account/brand/playlists/messages), the content of each playlist,
  * and the customer's profile (favorites, resume, order, hidden) which is synced to the panel.
  */
+/** An "M3U" link that is really an Xtream get.php link → use it as an Xtream playlist (player_api) — panels like Neo 4K answer 403 to get.php downloads. */
+fun asXtream(pl: Playlist): Playlist {
+    if (pl.kind != "m3u") return pl
+    val u = pl.hosts.firstOrNull() ?: return pl
+    return try { val x = android.net.Uri.parse(u); val user = x.getQueryParameter("username"); val pass = x.getQueryParameter("password")
+        if (user.isNullOrEmpty() || pass.isNullOrEmpty() || x.host.isNullOrEmpty()) pl else pl.copy(kind = "xtream", hosts = listOf(x.scheme + "://" + x.host + (if (x.port > 0) ":" + x.port else "")) + pl.hosts.drop(1), user = user, pass = pass)
+    } catch (e: Exception) { pl }
+}
 class Repo(private val ctx: Context) {
     val prefs = Prefs(ctx)
     val panel = PanelApi(prefs)
@@ -42,8 +50,8 @@ class Repo(private val ctx: Context) {
             val pls = (0 until lines.length()).map { i ->
                 val l = lines.getJSONObject(i)
                 val hosts = l.optJSONArray("hosts")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
-                Playlist(id = "p" + i + "_" + l.optString("user").ifEmpty { hosts.firstOrNull()?.hashCode()?.toString() ?: "" }, name = l.optString("name"), kind = if (l.optString("kind") == "m3u") "m3u" else "xtream", hosts = hosts, user = l.optString("user"),
-                    pass = l.optString("pass"), panel = l.optString("panel"), trial = l.optBoolean("trial"), exp = l.optString("exp"), fromPanel = true, protect = l.optBoolean("protect"))
+                asXtream(Playlist(id = "p" + i + "_" + l.optString("user").ifEmpty { hosts.firstOrNull()?.hashCode()?.toString() ?: "" }, name = l.optString("name"), kind = if (l.optString("kind") == "m3u") "m3u" else "xtream", hosts = hosts, user = l.optString("user"),
+                    pass = l.optString("pass"), panel = l.optString("panel"), trial = l.optBoolean("trial"), exp = l.optString("exp"), fromPanel = true, protect = l.optBoolean("protect")))
             }
             // the panel sends hosts healthiest-first (10-minute checks): follow it, so a customer on a dead host moves to a working one by himself
             for (pl in pls) { val best = pl.hosts.firstOrNull() ?: continue; val cur = hostFor[pl.id]; if (cur != null && cur != xtream.baseUrl(best)) { hostFor[pl.id] = xtream.baseUrl(best); cache.keys.filter { it.startsWith(pl.id + ":") }.forEach { cache.remove(it) } } }
@@ -76,9 +84,9 @@ class Repo(private val ctx: Context) {
         val lines = j.optJSONArray("lines") ?: return
         val have = playlists.value.map { it.user }.toSet()
         val add = (0 until lines.length()).map { lines.getJSONObject(it) }.filter { (it.optString("kind") == "m3u" || it.optString("user").isNotEmpty()) && it.optString("user") !in have }.map { l ->
-            Playlist(id = "x" + l.optString("user") + "_" + (System.currentTimeMillis() % 100000), name = l.optString("name").ifEmpty { l.optString("user") }, kind = if (l.optString("kind") == "m3u") "m3u" else "xtream",
+            asXtream(Playlist(id = "x" + l.optString("user") + "_" + (System.currentTimeMillis() % 100000), name = l.optString("name").ifEmpty { l.optString("user") }, kind = if (l.optString("kind") == "m3u") "m3u" else "xtream",
                 hosts = l.optJSONArray("hosts")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(), user = l.optString("user"), pass = l.optString("pass"), panel = l.optString("panel"),
-                trial = l.optBoolean("trial"), exp = l.optString("exp"), fromPanel = false, protect = l.optBoolean("protect")) }
+                trial = l.optBoolean("trial"), exp = l.optString("exp"), fromPanel = false, protect = l.optBoolean("protect"))) }
         val tk = j.optString("token"); if (tk.isNotEmpty()) scope.launch { try { panel.post("logout", tokenOverride = tk) } catch (e: Exception) {} }   // close the extra device session
         if (add.isEmpty()) return
         prefs.manualPlaylists = prefs.manualPlaylists + add
@@ -98,7 +106,7 @@ class Repo(private val ctx: Context) {
         cache.clear(); prefs.activePlaylistId = prefs.manualPlaylists.firstOrNull()?.id ?: ""
     }
 
-    fun addManualPlaylist(pl: Playlist) { prefs.manualPlaylists = prefs.manualPlaylists + pl; playlists.value = prefs.panelPlaylists + prefs.manualPlaylists; if (prefs.activePlaylistId.isEmpty()) prefs.activePlaylistId = pl.id }
+    fun addManualPlaylist(pl0: Playlist) { val pl = asXtream(pl0); prefs.manualPlaylists = prefs.manualPlaylists + pl; playlists.value = prefs.panelPlaylists + prefs.manualPlaylists; if (prefs.activePlaylistId.isEmpty()) prefs.activePlaylistId = pl.id }
     fun removeManualPlaylist(id: String) { prefs.manualPlaylists = prefs.manualPlaylists.filter { it.id != id }; playlists.value = prefs.panelPlaylists + prefs.manualPlaylists; if (prefs.activePlaylistId == id) prefs.activePlaylistId = playlists.value.firstOrNull()?.id ?: "" }
 
     val activePlaylist: Playlist? get() = playlists.value.firstOrNull { it.id == prefs.activePlaylistId } ?: playlists.value.firstOrNull()

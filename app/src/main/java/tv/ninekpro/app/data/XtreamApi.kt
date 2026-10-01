@@ -14,6 +14,12 @@ class XtreamApi {
 
     private fun get(url: String): String {
         client.newCall(Request.Builder().url(url).header("User-Agent", "9KProTV/1.0").build()).execute().use { r ->
+            if (r.code == 403 || r.code == 406) { // some panels only serve M3U/API to "browsers" — retry once with a browser user agent
+                client.newCall(Request.Builder().url(url).header("User-Agent", "Mozilla/5.0 (Linux; Android 11; TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36").build()).execute().use { r2 ->
+                    if (!r2.isSuccessful) throw IllegalStateException("HTTP " + r2.code)
+                    return r2.body?.string() ?: ""
+                }
+            }
             if (!r.isSuccessful) throw IllegalStateException("HTTP " + r.code)
             return r.body?.string() ?: ""
         }
