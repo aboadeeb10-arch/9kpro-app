@@ -166,6 +166,7 @@
     <string name="matches_today">משחקי היום</string>
     <string name="match_channels">ערוצים שמשדרים את המשחק</string>
     <string name="match_no_channel">לא נמצא ערוץ בלוח עדיין — נסה את קטגוריית הספורט בשידור חי.</string>
+    <string name="match_sports_only">אין עדיין מידע על המשחק הזה בלוח השידורים — אלה ערוצי הספורט שלך, הקש על אחד לנסות.</string>
     <string name="match_soon">המשחק מתחיל בעוד 5 דקות — הקש לפתיחה</string>
     <string name="change_server">החלפת שרת</string>
     <string name="servers">שרתים</string>
@@ -215,6 +216,18 @@
     <string name="speed_verdict_hd">טוב ל-HD</string>
     <string name="speed_verdict_4k">מצוין — מוכן ל-4K</string>
     <string name="speed_fail">לא ניתן להגיע לשרת</string>
+    <string name="record">הקלטה</string>
+    <string name="recording">מקליט…</string>
+    <string name="stop_recording">עצור</string>
+    <string name="recording_saved">ההקלטה נשמרה בהורדות</string>
+    <string name="record_scheduled">ההקלטה תוזמנה (לחיצה ארוכה שוב לביטול)</string>
+    <string name="record_unscheduled">ההקלטה בוטלה</string>
+    <string name="reorder_hint">גרור לסידור מחדש · לחץ סיום בסיום</string>
+    <string name="done">סיום</string>
+    <string name="move">העבר (סידור מחדש)</string>
+    <string name="scan_wa_renew">סרוק לחידוש בוואטסאפ</string>
+    <string name="refresh_device">רענון — בדיקת רשימה שלי</string>
+    <string name="no_playlist_yet">עדיין אין רשימה למכשיר הזה — פנה למוכר.</string>
     <string name="speed_internet">מהירות אינטרנט</string>
     <string name="speed_server">השרת שלך</string>
     <string name="speed_jitter">תנודתיות</string>
@@ -226,14 +239,4 @@
     <string name="speed_step_down">מהירות אינטרנט</string>
     <string name="speed_step_stream">שידור מהשרת</string>
     <string name="speed_hint">מודד את קו האינטרנט ובודק שהשרת שלך מספק וידאו. לוקח כ-15 שניות.</string>
-    <string name="record">הקלטה</string>
-    <string name="recording">מקליט…</string>
-    <string name="stop_recording">עצור</string>
-    <string name="recording_saved">ההקלטה נשמרה בהורדות</string>
-    <string name="record_scheduled">ההקלטה תוזמנה (לחיצה ארוכה שוב לביטול)</string>
-    <string name="record_unscheduled">ההקלטה בוטלה</string>
-    <string name="reorder_hint">גרור לסידור מחדש · לחץ סיום בסיום</string>
-    <string name="done">סיום</string>
-    <string name="move">העבר (סידור מחדש)</string>
-    <string name="scan_wa_renew">סרוק לחידוש בוואטסאפ</string>
 </resources>

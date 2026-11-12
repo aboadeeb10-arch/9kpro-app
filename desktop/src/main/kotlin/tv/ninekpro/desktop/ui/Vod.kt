@@ -2,6 +2,7 @@
 package tv.ninekpro.desktop.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.filled.DragHandle
@@ -10,6 +11,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -100,7 +102,7 @@ fun ResumeAsk(key: String, onPick: (Long) -> Unit, onDismiss: () -> Unit) { val 
 
 @Composable
 fun MovieScreen(item: Item) {
-    val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current; val scope = rememberCoroutineScope()
+    val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current; val scope = rememberCoroutineScope(); val win = LocalWindow.current; val lang = LocalLang.current
     val pl = repo.activePlaylist
     var info by remember { mutableStateOf<JSONObject?>(null) }; var tm by remember { mutableStateOf<TmdbInfo?>(null) }; var ask by remember { mutableStateOf(false) }
     val pv by repo.profileVersion.collectAsState()
@@ -140,6 +142,10 @@ fun MovieScreen(item: Item) {
                         PBtn(if (r != null && r.positionMs > 0) T("resume") else T("play"), Icons.Default.PlayArrow, primary = true) { if (r != null && r.positionMs > 0) ask = true else play(0L) }
                         val fav = repo.isFavorite(item.key); PBtn(if (fav) T("remove_favorite") else T("add_favorite"), if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder) { repo.toggleFavorite(item.key) }
                         if (trailer.isNotEmpty()) PBtn(T("trailer"), Icons.Default.OndemandVideo) { try { java.awt.Desktop.getDesktop().browse(java.net.URI(trailer)) } catch (e: Throwable) {} }
+                        val dlList by DlStore.list.collectAsState(); val have = dlList.firstOrNull { it.extra == repo.itemExtra(item) }
+                        if (have != null && have.done) PBtn(T("downloaded_on"), Icons.Default.DownloadDone) { nav.push(Screen.Downloads) }
+                        else if (have != null && have.error.isEmpty()) PBtn(T("downloading"), Icons.Default.Downloading) { nav.push(Screen.Downloads) }
+                        else PBtn(T("download"), Icons.Default.Download) { scope.launch { val u = repo.streamUrl(pl ?: return@launch, item); DlStore.download(u, item.name, "movie", poster, repo.itemExtra(item)); win.toast(Strings.get(lang, "download_started")) } }
                     }
                     Spacer(Modifier.height(16.dp))
                     if (plot.isNotEmpty()) Text(plot, color = c.text.copy(alpha = 0.92f), fontSize = 14.sp, lineHeight = 20.sp)
@@ -170,12 +176,16 @@ fun CastRow(people: List<Person>) { val c = LocalColors.current
 
 @Composable
 fun SeriesScreen(item: Item) {
-    val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current; val scope = rememberCoroutineScope()
+    val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current; val scope = rememberCoroutineScope(); val win = LocalWindow.current; val lang = LocalLang.current
+    val dlList by DlStore.list.collectAsState()
     val pl = repo.activePlaylist
     var info by remember { mutableStateOf<SeriesInfo?>(null) }; var err by remember { mutableStateOf("") }; var season by remember { mutableStateOf(-1) }
     var askEp by remember { mutableStateOf<Episode?>(null) }; var tm by remember { mutableStateOf<TmdbInfo?>(null) }
     val pv by repo.profileVersion.collectAsState()
-    LaunchedEffect(item.key) { launch { tm = repo.tmdbFor(item.name, item.year, true) }; if (pl != null) try { info = repo.seriesInfo(pl, item.id); season = info?.seasons?.keys?.firstOrNull() ?: -1 } catch (e: Throwable) { err = e.message ?: "error" } }
+    val saved = repo.seriesUi[item.key]
+    val listState = rememberLazyListState(saved?.getOrNull(1) ?: 0, saved?.getOrNull(2) ?: 0)
+    LaunchedEffect(item.key) { launch { tm = repo.tmdbFor(item.name, item.year, true) }; if (pl != null) try { info = repo.seriesInfo(pl, item.id); val keys = info?.seasons?.keys ?: emptySet(); season = if (saved != null && keys.contains(saved[0])) saved[0] else keys.firstOrNull() ?: -1 } catch (e: Throwable) { err = e.message ?: "error" } }
+    DisposableEffect(Unit) { onDispose { repo.seriesUi[item.key] = intArrayOf(season, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) } }
     fun play(ep: Episode, startMs: Long) { scope.launch { val u = repo.episodeUrl(pl ?: return@launch, ep); nav.push(Screen.Play(u, item.name + " · S" + ep.season + "E" + ep.num + " " + ep.title, item, episode = ep, startMs = startMs, resumeKey = ep.key, image = ep.icon.ifEmpty { item.icon })) } }
     val inf = info
     Box(Modifier.fillMaxSize()) {
@@ -206,14 +216,21 @@ fun SeriesScreen(item: Item) {
                     else {
                         Row(Modifier.padding(bottom = 8.dp)) { inf.seasons.keys.forEach { sn -> Text(T("season", sn), color = if (sn == season) Color.White else c.text, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 6.dp).clip(RoundedCornerShape(8.dp)).background(if (sn == season) c.accent else c.card).hoverGlow(c.accent, 8, 1.02f).clickable { season = sn }.padding(horizontal = 12.dp, vertical = 7.dp)) } }
                         val eps = inf.seasons[season] ?: emptyList()
-                        LazyColumn { items(eps, key = { it.key }) { ep ->
-                            val r = repo.resumeOf(ep.key)
-                            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).glass(c, 10).hoverGlow(c.accent, 10, 1.01f).clickable { if (r != null && r.positionMs > 0) askEp = ep else play(ep, 0L) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(150.dp, 84.dp).clip(RoundedCornerShape(8.dp)).background(c.card2)) { AsyncImage(ep.icon.ifEmpty { item.icon }, Modifier.fillMaxSize()); if (r != null && r.durationMs > 0) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(r.positionMs.toFloat() / r.durationMs).height(3.dp).background(c.accent)) }
+                        LazyColumn(state = listState) { items(eps, key = { it.key }) { ep ->
+                            val r = remember(ep.key, pv) { repo.resumeOf(ep.key) }
+                            val inProgress = r != null && r.positionMs > 0 && r.durationMs > 0
+                            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).glass(c, 10).then(if (inProgress) Modifier.border(1.5.dp, c.accent.copy(alpha = 0.7f), RoundedCornerShape(10.dp)) else Modifier).hoverGlow(c.accent, 10, 1.01f).clickable { if (inProgress) askEp = ep else play(ep, 0L) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(150.dp, 84.dp).clip(RoundedCornerShape(8.dp)).background(c.card2)) { AsyncImage(ep.icon.ifEmpty { item.icon }, Modifier.fillMaxSize())
+                                    if (inProgress) { Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(6.dp).background(Color.Black.copy(alpha = 0.55f))); Box(Modifier.align(Alignment.BottomStart).fillMaxWidth((r!!.positionMs.toFloat() / r.durationMs).coerceIn(0.02f, 1f)).height(6.dp).background(c.accent)) } }
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) { Text("E" + ep.num + "  " + ep.title, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    if (ep.durationSecs > 0) Text(fmtTime(ep.durationSecs * 1000L), color = c.muted, fontSize = 11.5.sp)
+                                    if (inProgress) Text("⏸ " + T("resume") + " · " + fmtTime(r!!.positionMs) + " / " + fmtTime(r.durationMs) + " · " + (r.positionMs * 100 / r.durationMs) + "%", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    else if (ep.durationSecs > 0) Text(fmtTime(ep.durationSecs * 1000L), color = c.muted, fontSize = 11.5.sp)
                                     if (ep.plot.isNotEmpty()) Text(ep.plot, color = c.muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                                val epExtra = repo.episodeExtra(ep, item.name); val have = dlList.firstOrNull { it.extra == epExtra }
+                                Icon(if (have != null && have.done) Icons.Default.DownloadDone else if (have != null && have.error.isEmpty()) Icons.Default.Downloading else Icons.Default.Download, null, tint = if (have != null) c.accent else c.muted,
+                                    modifier = Modifier.size(24.dp).clickable { if (have != null) nav.push(Screen.Downloads) else scope.launch { val u = repo.episodeUrl(pl ?: return@launch, ep); DlStore.download(u, item.name + " · S" + ep.season + "E" + ep.num + " " + ep.title, "episode", ep.icon.ifEmpty { item.icon }, epExtra); win.toast(Strings.get(lang, "download_started")) } })
+                                Spacer(Modifier.width(10.dp))
                                 Icon(Icons.Default.PlayArrow, null, tint = c.accent, modifier = Modifier.size(28.dp))
                             } } }
                     }

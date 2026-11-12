@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
@@ -24,12 +25,14 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -50,16 +53,25 @@ fun VodPane(kind: Kind) {
     val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current
     val pl = repo.activePlaylist ?: run { nav.reset(Screen.Playlists); return }
     val pv by repo.profileVersion.collectAsState()
-    var catId by remember { mutableStateOf(ALL) }; var showList by remember { mutableStateOf(false) }; var gate by remember { mutableStateOf<String?>(null) }
-    var sort by remember { mutableStateOf("new") }; var reorder by remember { mutableStateOf(false) }
+    // Back from a movie returns to the same category, list/grid step, scroll position and sort (kept in repo.vodUi / prefs like the Live tab does)
+    val ui = repo.vodUi[kind]
+    var catId by remember { mutableStateOf(ui?.cat?.ifEmpty { ALL } ?: ALL) }; var showList by remember { mutableStateOf(ui?.showList ?: false) }; var gate by remember { mutableStateOf<String?>(null) }
+    var sort by remember { mutableStateOf(repo.prefs.vodSort(kind)) }; var reorder by remember { mutableStateOf(false) }
+    val gridState = rememberLazyGridState(initialFirstVisibleItemIndex = ui?.scroll ?: 0)
+    LaunchedEffect(catId) { if (ui != null && catId != ui.cat) { ui.cat = catId; ui.scroll = 0; gridState.scrollToItem(0) } }
+    LaunchedEffect(showList) { ui?.showList = showList }
+    LaunchedEffect(gridState) { snapshotFlow { gridState.firstVisibleItemIndex }.collect { ui?.scroll = it } }
     Loaded(pl.id + kind.name, { repo.content(pl, kind) }, isEmpty = { it.items.isEmpty() && pl.kind == "xtream" }) { content ->
         val hidden = remember(pv) { repo.hidden() }; val favs = remember(pv) { repo.favorites().toSet() }
         val cats = remember(content, pv) { repo.applyOrder("cats:${pl.id}:${kind.name}", content.categories) { it.id } }.filter { repo.prefs.showHidden || !hidden.contains("cat:" + it.id) }
         val locked = remember(pv, content) { val l = repo.locked().toMutableSet(); if (repo.prefs.parentalOn) content.categories.filter { repo.isAdultName(it.name) }.forEach { l.add("cat:" + it.id) }; if (!repo.prefs.parentalOn) l.clear(); l as Set<String> }
         val counts = remember(content) { content.items.groupingBy { it.categoryId }.eachCount() }
+        // a remembered category that no longer exists (playlist refreshed) falls back to All
+        LaunchedEffect(content) { if (catId != ALL && catId != CONT && catId != FAV && content.categories.isNotEmpty() && content.categories.none { it.id == catId }) catId = ALL }
         val listId = "items:${pl.id}:${kind.name}:$catId"
-        val items = remember(content, catId, pv, sort) {
-            if (catId == CONT) return@remember repo.continueItems(kind, content)
+        // big lists (> 2000 titles) are filtered/sorted on a background thread with a spinner; small ones stay synchronous (no flicker)
+        val itemsOrNull = heavyList(content.items.size > 2000, content, catId, pv, sort) {
+            if (catId == CONT) return@heavyList repo.continueItems(kind, content)
             val base = when (catId) { ALL -> content.items; FAV -> content.items.filter { favs.contains(it.key) }; else -> content.items.filter { it.categoryId == catId } }
             val sorted = when (sort) { "az" -> base.sortedBy { it.name.lowercase() }; "new" -> base.sortedByDescending { it.added }; "rating" -> base.sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }; else -> repo.applyOrder(listId, base) { it.key } }
             sorted.filter { repo.prefs.showHidden || !hidden.contains(it.key) }
@@ -91,10 +103,10 @@ fun VodPane(kind: Kind) {
                             Box(Modifier.fillMaxWidth().height(1.dp).background(c.line.copy(alpha = 0.5f)))
                         }
                     }
-                } else LazyColumn(m, contentPadding = PaddingValues(vertical = 4.dp)) {
+                } else LazyColumn(m.restoreFocus(), contentPadding = PaddingValues(vertical = 4.dp)) {
                     item { CatRow(stringResource(R.string.all), content.items.size, catId == ALL) { catId = ALL; showList = true } }
                     if (contCount > 0) item { CatRow(stringResource(R.string.continue_watching), contCount, catId == CONT) { catId = CONT; showList = true } }
-                    item { CatRow(stringResource(R.string.favorites), favs.count { it.contains(":" + kind.name + ":") }, catId == FAV) { catId = FAV; showList = true } }
+                    item { CatRow(stringResource(R.string.favorites), favs.count { it.startsWith(pl.id + ":" + kind.name + ":") }, catId == FAV) { catId = FAV; showList = true } }
                     items(cats, key = { it.id }) { cat ->
                         var menu by remember { mutableStateOf(false) }
                         val isLocked = locked.contains("cat:" + cat.id)
@@ -106,13 +118,13 @@ fun VodPane(kind: Kind) {
             val grid: @Composable (Modifier) -> Unit = { m ->
                 Column(m) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (!wide) { Pill("‹", false) { showList = false }; Spacer(Modifier.width(8.dp)) }
+                        if (!wide) { Pill(backArrow(), false) { showList = false }; Spacer(Modifier.width(8.dp)) }
                         Text(cats.firstOrNull { it.id == catId }?.name ?: (when (catId) { FAV -> stringResource(R.string.favorites); CONT -> stringResource(R.string.continue_watching); else -> stringResource(R.string.all) }), color = c.text, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         var m2 by remember { mutableStateOf(false) }
                         Box { Pill(stringResource(R.string.sort), false) { m2 = true }
-                            DropdownMenu(expanded = m2, onDismissRequest = { m2 = false }) { listOf("default" to R.string.sort_default, "az" to R.string.sort_az, "new" to R.string.sort_newest, "rating" to R.string.sort_rating).forEach { (k, r) -> DropdownMenuItem(text = { Text(stringResource(r)) }, onClick = { sort = k; m2 = false }) } } }
+                            DropdownMenu(expanded = m2, onDismissRequest = { m2 = false }) { listOf("default" to R.string.sort_default, "az" to R.string.sort_az, "new" to R.string.sort_newest, "rating" to R.string.sort_rating).forEach { (k, r) -> DropdownMenuItem(text = { Text(stringResource(r)) }, onClick = { sort = k; repo.prefs.setVodSort(kind, k); m2 = false }) } } }
                     }
-                    Box(Modifier.fillMaxSize()) { ItemGrid(items, kind, pl, listId, hidden, sort == "default") }
+                    Box(Modifier.fillMaxSize()) { val items = itemsOrNull; if (items == null) Loading() else ItemGrid(items, kind, pl, listId, hidden, sort == "default", state = gridState) }
                 }
             }
             if (wide) Row(Modifier.fillMaxSize()) {

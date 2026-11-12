@@ -167,6 +167,7 @@
     <string name="matches_today">Matches today</string>
     <string name="match_channels">Channels showing this match</string>
     <string name="match_no_channel">No channel found in the guide yet — try the Sports category in Live TV.</string>
+    <string name="match_sports_only">The guide has no info for this match yet — these are your sports channels, tap one to try it.</string>
     <string name="match_soon">Kick-off in 5 minutes — tap to open</string>
     <string name="change_server">Change server</string>
     <string name="servers">Servers</string>
@@ -216,6 +217,18 @@
     <string name="speed_verdict_hd">Good for HD</string>
     <string name="speed_verdict_4k">Excellent — 4K ready</string>
     <string name="speed_fail">Could not reach the server</string>
+    <string name="record">Record</string>
+    <string name="recording">Recording…</string>
+    <string name="stop_recording">Stop</string>
+    <string name="recording_saved">Recording saved in Downloads</string>
+    <string name="record_scheduled">Recording scheduled (long-press again to cancel)</string>
+    <string name="record_unscheduled">Recording cancelled</string>
+    <string name="reorder_hint">Drag to reorder · press Done when finished</string>
+    <string name="done">Done</string>
+    <string name="move">Move (reorder)</string>
+    <string name="scan_wa_renew">Scan to renew on WhatsApp</string>
+    <string name="refresh_device">Refresh — check for my playlist</string>
+    <string name="no_playlist_yet">No playlist for this device yet — ask your seller.</string>
     <string name="speed_internet">Internet speed</string>
     <string name="speed_server">Your server</string>
     <string name="speed_jitter">jitter</string>
@@ -227,14 +240,4 @@
     <string name="speed_step_down">Internet speed</string>
     <string name="speed_step_stream">Server stream</string>
     <string name="speed_hint">Measures your internet line and checks that your server delivers video. Takes about 15 seconds.</string>
-    <string name="record">Record</string>
-    <string name="recording">Recording…</string>
-    <string name="stop_recording">Stop</string>
-    <string name="recording_saved">Recording saved in Downloads</string>
-    <string name="record_scheduled">Recording scheduled (long-press again to cancel)</string>
-    <string name="record_unscheduled">Recording cancelled</string>
-    <string name="reorder_hint">Drag to reorder · press Done when finished</string>
-    <string name="done">Done</string>
-    <string name="move">Move (reorder)</string>
-    <string name="scan_wa_renew">Scan to renew on WhatsApp</string>
 </resources>

@@ -113,9 +113,10 @@ fun SpeedTestPanel() {
     var job by remember { mutableStateOf<Job?>(null) }
     DisposableEffect(Unit) { onDispose { job?.cancel() } }
     val running = r.phase in SpeedEngine.PING..SpeedEngine.STREAM
+    val serverWord = stringResource(R.string.server_n, 0).replace("0", "").trim()   // "Server" in the current language; the address itself is never shown
     fun start() { if (running) return; err = ""; r = SpeedEngine.Result(phase = SpeedEngine.PING)
         job = scope.launch {
-            try { val pl = repo.activePlaylist ?: throw Exception("no playlist"); val h = repo.host(pl); host = h.replace(Regex("^https?://"), "").trimEnd('/')
+            try { val pl = repo.activePlaylist ?: throw Exception("no playlist"); val h = repo.host(pl); host = serverWord + " " + (pl.hosts.indexOfFirst { x -> repo.xtream.baseUrl(x) == repo.xtream.baseUrl(h) } + 1).coerceAtLeast(1)
                 val urls = ArrayList<String>(); try { for (it in repo.content(pl, Kind.LIVE).items.take(3)) urls.add(repo.streamUrl(pl, it, ts = true)) } catch (e: Throwable) {}
                 SpeedEngine.run(repo.xtream.baseUrl(h) + "/player_api.php", urls) { r = it }
             } catch (e: Throwable) { if (e !is kotlinx.coroutines.CancellationException) { err = "✕ " + (e.message ?: "error"); r = r.copy(phase = SpeedEngine.DONE) } }

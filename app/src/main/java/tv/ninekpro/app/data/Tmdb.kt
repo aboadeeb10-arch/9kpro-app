@@ -3,6 +3,7 @@ package tv.ninekpro.app.data
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 data class Person(val name: String, val role: String, val photo: String)
@@ -12,7 +13,9 @@ data class TmdbInfo(val title: String, val overview: String, val poster: String,
 /** The Movie Database — fills posters, plot, cast and trailers when the panel's own info is poor. Key comes from the panel brand (My App → Brand). */
 class Tmdb(private val keyProvider: () -> String) {
     private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
-    private val cache = HashMap<String, TmdbInfo?>()
+    // filled from several coroutines at once (grid cells) → concurrent map; NONE marks "looked up, nothing found"
+    private val cache = ConcurrentHashMap<String, Any>()
+    private val NONE = Any()
     private val IMG = "https://image.tmdb.org/t/p/"
 
     private fun get(url: String): JSONObject? = try { client.newCall(Request.Builder().url(url).build()).execute().use { r -> if (r.isSuccessful) JSONObject(r.body?.string() ?: "{}") else null } } catch (e: Exception) { null }
@@ -29,13 +32,13 @@ class Tmdb(private val keyProvider: () -> String) {
         val key = keyProvider(); if (key.isEmpty()) return null
         val (clean, y) = cleanName(name); val yy = year.take(4).ifEmpty { y }
         val ck = (if (isSeries) "tv:" else "m:") + clean + ":" + yy
-        if (cache.containsKey(ck)) return cache[ck]
+        cache[ck]?.let { return if (it === NONE) null else it as TmdbInfo }
         val kind = if (isSeries) "tv" else "movie"
         val q = java.net.URLEncoder.encode(clean, "UTF-8")
         val s = get("https://api.themoviedb.org/3/search/$kind?api_key=$key&query=$q&language=$lang" + (if (yy.isNotEmpty()) (if (isSeries) "&first_air_date_year=" else "&year=") + yy else ""))
             ?: (if (yy.isNotEmpty()) get("https://api.themoviedb.org/3/search/$kind?api_key=$key&query=$q&language=$lang") else null)
         val first = s?.optJSONArray("results")?.optJSONObject(0)
-        if (first == null) { cache[ck] = null; return null }
+        if (first == null) { cache[ck] = NONE; return null }
         val id = first.optInt("id")
         val d = get("https://api.themoviedb.org/3/$kind/$id?api_key=$key&language=$lang&append_to_response=credits,videos,external_ids") ?: first
         val genres = d.optJSONArray("genres")?.let { a -> (0 until a.length()).joinToString(", ") { a.getJSONObject(it).optString("name") } } ?: ""

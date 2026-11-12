@@ -1,8 +1,12 @@
 package tv.ninekpro.app
 
+import android.app.PictureInPictureParams
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,11 +27,36 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.MutableStateFlow
+import tv.ninekpro.app.data.DeviceInfo
 import tv.ninekpro.app.data.Prefs
 import tv.ninekpro.app.ui.App
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    /** True while the app is shown as a small picture-in-picture window (phones only); the player hides its controls then. */
+    val pipMode = MutableStateFlow(false)
+    @Volatile private var pipEnabled = false
+
+    /** Called by the player: true while a stream is playing on a phone → leaving the app (Home / recents) shrinks it to a PiP window. Never on TV. */
+    fun setPipEnabled(on: Boolean) {
+        val want = on && !DeviceInfo.isTv && Build.VERSION.SDK_INT >= 26 && try { packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) } catch (e: Throwable) { false }
+        if (pipEnabled == want) return
+        pipEnabled = want
+        if (Build.VERSION.SDK_INT >= 31) try { setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(want).setAspectRatio(Rational(16, 9)).build()) } catch (e: Throwable) {}
+    }
+    /** API 26–30 have no auto-enter: enter PiP ourselves when the user leaves while a stream plays. */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (pipEnabled && Build.VERSION.SDK_INT >= 26 && Build.VERSION.SDK_INT < 31) try { enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()) } catch (e: Throwable) {}
+    }
+    @androidx.annotation.RequiresApi(26)
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        pipMode.value = isInPictureInPictureMode
+        if (!isInPictureInPictureMode) immersive()
+    }
+
     override fun attachBaseContext(newBase: Context) {
         val lang = try { Prefs(newBase).language } catch (e: Throwable) { "" }
         if (lang.isEmpty()) { super.attachBaseContext(newBase); return }
@@ -47,12 +76,17 @@ class MainActivity : ComponentActivity() {
         }
         immersive()
         Crash.onAppStarted(this)
-        if (intent?.hasExtra("match") == true) Launch.openSports = true
-        intent?.getStringExtra("chkey")?.let { if (it.isNotEmpty()) Launch.openChannel = it }
-        intent?.getStringExtra("resume_key")?.let { if (it.isNotEmpty()) Launch.openResume = it }
+        readLaunchIntent(intent)
         setContent { App(repo, this) }
     }
-    override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); if (intent.hasExtra("match")) Launch.openSports = true; intent.getStringExtra("chkey")?.let { if (it.isNotEmpty()) Launch.openChannel = it }; intent.getStringExtra("resume_key")?.let { if (it.isNotEmpty()) Launch.openResume = it } }
+    override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); readLaunchIntent(intent) }
+    /** Shortcut / notification / TV-channel intents: remember what to open (Launch.pending is what App.kt reacts to; the old vars stay for compatibility). */
+    private fun readLaunchIntent(intent: android.content.Intent?) {
+        if (intent == null) return
+        if (intent.hasExtra("match")) { Launch.openSports = true; tv.ninekpro.app.Launch.pending.value = tv.ninekpro.app.Launch.Open("sports") }
+        intent.getStringExtra("chkey")?.let { if (it.isNotEmpty()) { Launch.openChannel = it; tv.ninekpro.app.Launch.pending.value = tv.ninekpro.app.Launch.Open("channel", it) } }
+        intent.getStringExtra("resume_key")?.let { if (it.isNotEmpty()) { Launch.openResume = it; tv.ninekpro.app.Launch.pending.value = tv.ninekpro.app.Launch.Open("resume", it) } }
+    }
 
     /** Receiver-style full screen: Android's status + navigation bars stay hidden everywhere; a swipe from the edge shows them briefly. */
     private fun immersive() {

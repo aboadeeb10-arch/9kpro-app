@@ -52,7 +52,12 @@ sealed class Screen {
     object Guide : Screen()
     object Playlists : Screen()
     object Speed : Screen()
+    object Multi : Screen()
+    object Downloads : Screen()
 }
+
+/** Mini player (small always-on-top window) state shared by the main window and the mini window. */
+object Mini { var on by mutableStateOf(false) }
 
 class Nav {
     val stack = mutableStateListOf<Screen>(Screen.Main)

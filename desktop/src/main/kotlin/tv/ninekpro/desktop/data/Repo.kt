@@ -55,6 +55,12 @@ class Repo {
         if (prefs.token.isNotEmpty() && playlists.value.isNotEmpty()) { addExtraLogin(r.json); return@withContext null }
         prefs.token = r.json.optString("token"); applyPayload(r.json); null
     }
+    /** 6-digit activation code from the seller (panel `code_login`). */
+    suspend fun codeLogin(code: String): String? = withContext(Dispatchers.IO) {
+        val r = panel.codeLogin(code); if (!r.ok) return@withContext r.error.ifEmpty { "wrong_login" }
+        if (prefs.token.isNotEmpty() && playlists.value.isNotEmpty()) { addExtraLogin(r.json); return@withContext null }
+        prefs.token = r.json.optString("token"); applyPayload(r.json); null
+    }
     /** "Add playlist" while playlists already exist: keep the session and ADD the new account's lines (own playlists, deletable). */
     private fun addExtraLogin(j: JSONObject) {
         val lines = j.optJSONArray("lines") ?: return
@@ -72,6 +78,11 @@ class Repo {
     suspend fun refreshSession(): String? = withContext(Dispatchers.IO) {
         if (prefs.token.isEmpty()) { panel.brand()?.let { b -> brand.value = b; prefs.brandJson = JSONObject().put("name", b.name).put("color", b.color).put("bg1", b.bg1).put("bg2", b.bg2).put("bg3", b.bg3).put("whatsapp", b.whatsapp).put("logo", b.logo).put("renew_days", b.renewDays).put("renew_text", b.renewText).put("tmdb", b.tmdb).put("football_on", b.footballOn).toString() }; return@withContext null }
         val r = panel.refresh(); if (r.ok) { applyPayload(r.json); null } else r.error
+    }
+    /** Login screen "Refresh": asks the panel again whether a playlist was assigned to this device (My App → Add user by MAC) — no logout/login needed. */
+    suspend fun checkDevice(): Boolean = withContext(Dispatchers.IO) {
+        try { if (prefs.token.isEmpty()) deviceHello() else refreshSession() } catch (e: Throwable) {}
+        playlists.value.any { it.fromPanel }
     }
     suspend fun deviceHello(): Boolean = withContext(Dispatchers.IO) {
         if (prefs.token.isNotEmpty()) return@withContext true
@@ -272,6 +283,13 @@ class Repo {
     @Volatile var liveUiCat: String = "__all"; @Volatile var liveUiSel: Item? = null
     /** Movies/Series tab state kept across navigation: category id and grid scroll (index, offset) per kind. */
     val vodUiCat = HashMap<Kind, String>(); val vodUiScroll = HashMap<Kind, Pair<Int, Int>>()
+    /** Series screen state per series key: selected season + episode list scroll (index, offset) — Back from an episode returns to the same place. */
+    val seriesUi = HashMap<String, IntArray>()
+    /** Same `extra` JSON as the Android app writes, so Continue Watching and the panel sync read both devices' entries. */
+    fun itemExtra(it: Item): String = JSONObject().put("pl", it.playlistId).put("kind", it.kind.name).put("id", it.id).put("name", it.name).put("icon", it.icon).put("ext", it.ext).put("cat", it.categoryId).put("url", it.directUrl).toString()
+    fun episodeExtra(ep: Episode, seriesName: String): String = JSONObject().put("pl", ep.playlistId).put("kind", "EP").put("id", ep.id).put("series", ep.seriesId).put("ext", ep.ext).put("title", ep.title).put("s", ep.season).put("n", ep.num).put("icon", ep.icon).put("sname", seriesName).toString()
+    /** All episodes of a series in play order (season, number) — used for next/previous episode. */
+    fun episodesInOrder(info: SeriesInfo): List<Episode> = info.seasons.toSortedMap().values.flatten().sortedWith(compareBy({ it.season }, { it.num }))
 
     // ---- parental ----
     fun locked(): Set<String> { val a = prof().optJSONArray("locked") ?: return emptySet(); return (0 until a.length()).map { a.getString(it) }.toSet() }
@@ -316,14 +334,29 @@ class Repo {
     private fun scheduleSync() { if (prefs.token.isEmpty()) return; syncJob?.cancel(); syncJob = scope.launch { delay(4000); try { val r = panel.syncSet(prefs.profile); if (r.ok) { prefs.profileDirty = false; prefs.lastSync = System.currentTimeMillis() } } catch (e: Exception) {} } }
     fun syncNow() { if (prefs.profileDirty) scheduleSync() }
 
+    // ---- weather (panel looks the city up from the IP; 30-min cache here too) ----
+    data class Weather(val city: String, val temp: Int, val code: Int)
+    val weather = MutableStateFlow<Weather?>(null)
+    private var weatherAt = 0L
+    fun loadWeather() { if (prefs.token.isEmpty() || System.currentTimeMillis() - weatherAt < 30 * 60_000L) return; weatherAt = System.currentTimeMillis()
+        scope.launch { try { val r = panel.weather(); if (r.ok) weather.value = Weather(r.json.optString("city"), r.json.optInt("temp"), r.json.optInt("code")) } catch (e: Exception) {} } }
+
+    // ---- sleep timer ----
+    val sleepUntil = MutableStateFlow(0L)
+    fun setSleep(minutes: Int) { sleepUntil.value = if (minutes <= 0) 0L else System.currentTimeMillis() + minutes * 60_000L }
+    fun sleepMinutesLeft(): Int = ((sleepUntil.value - System.currentTimeMillis()) / 60_000L).toInt().coerceAtLeast(0)
+
     // ---- heartbeat ----
     @Volatile var nowPlaying: JSONObject? = null
+    /** Last playback failure ("play_error <title> @ host"), sent with the next heartbeat so the panel's Live monitor sees PC users too. */
+    @Volatile var lastError: String = ""
+    fun notePlayError(title: String, url: String) { try { val h = java.net.URI(url).host ?: ""; lastError = ("play_error " + title.take(60) + (if (h.isNotEmpty()) " @ $h" else "")).take(200) } catch (e: Exception) { lastError = ("play_error " + title.take(60)).take(200) } }
     private var hbJob: Job? = null
     val kicked = MutableStateFlow(false)
     fun startHeartbeat() {
         if (hbJob != null) return
         hbJob = scope.launch {
-            var lastId = ""; var secs = 0
+            var lastId = ""; var secs = 0; var lastHv = ""
             while (true) {
                 try { checkCrashFix() } catch (e: Exception) { }
                 try { pingServer() } catch (e: Exception) { }
@@ -332,8 +365,10 @@ class Repo {
                         val np = nowPlaying; val id = np?.optString("id") ?: ""
                         val log = id.isNotEmpty() && id != lastId
                         secs = if (id == lastId) secs + 60 else 0
-                        val r = panel.heartbeat(np, secs, log)
-                        if (r.ok) lastId = id
+                        val err = lastError; lastError = ""
+                        val r = panel.heartbeat(np, secs, log, err)
+                        if (r.ok) { lastId = id
+                            val hv = r.json.optString("hv"); if (hv.isNotEmpty() && hv != lastHv) { if (lastHv.isNotEmpty()) try { refreshSession() } catch (e: Exception) {}; lastHv = hv } }
                         else if (r.error == "logged_out" || r.error == "device_blocked" || r.error == "blocked") { prefs.clearSession(); account.value = null; playlists.value = prefs.manualPlaylists; kicked.value = true }
                     }
                 } catch (e: Exception) { }

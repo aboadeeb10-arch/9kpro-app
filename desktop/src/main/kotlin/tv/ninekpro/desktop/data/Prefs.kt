@@ -53,6 +53,17 @@ class Prefs {
     var pendingUpdate: String get() = str("pendingUpdate"); set(v) = put("pendingUpdate", v)   // "version|path" downloaded, applied on next start
     var windowW: Int get() = o.optInt("winW", 1280); set(v) = put("winW", v)
     var windowH: Int get() = o.optInt("winH", 760); set(v) = put("winH", v)
+    var windowX: Int get() = o.optInt("winX", Int.MIN_VALUE); set(v) = put("winX", v)   // MIN_VALUE = let the OS place the window
+    var windowY: Int get() = o.optInt("winY", Int.MIN_VALUE); set(v) = put("winY", v)
+    var maximized: Boolean get() = o.optBoolean("winMax", false); set(v) = put("winMax", v)
+    var trayOnClose: Boolean get() = o.optBoolean("trayOnClose", false); set(v) = put("trayOnClose", v)
+    var startInTray: Boolean get() = o.optBoolean("startInTray", false); set(v) = put("startInTray", v)
+    var hwDecode: String get() = str("hwDecode", "auto"); set(v) = put("hwDecode", v)           // auto | off
+    var deinterlace: String get() = str("deinterlace", "off"); set(v) = put("deinterlace", v)   // off | auto | yadif
+    var netCache: Int get() = o.optInt("netCache", 1500); set(v) = put("netCache", v)           // ms of buffering
+    var dlKey: String get() = str("dlKey"); set(v) = put("dlKey", v)                            // hex AES key for the downloads on this PC
+    var multiLayout: Int get() = o.optInt("multiLayout", 4); set(v) = put("multiLayout", v)
+    var multiSlots: String get() = str("multiSlots", "[]"); set(v) = put("multiSlots", v)       // JSON array of channel keys, "" = empty slot
 
     var manualPlaylists: List<Playlist>
         get() = readList("manualPl").map { Playlist.fromJson(it) }

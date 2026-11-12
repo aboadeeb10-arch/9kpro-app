@@ -4,6 +4,7 @@ import android.app.DownloadManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -59,15 +60,20 @@ fun DownloadsScreen() {
             items(rows, key = { (if (it.legacy) "o" else "e") + it.id }) { r ->
                 var ask by remember { mutableStateOf(false) }
                 val when_ = remember(r.modified) { if (r.modified > 0) java.text.SimpleDateFormat("EEE d MMM · HH:mm", java.util.Locale.getDefault()).format(java.util.Date(r.modified)) else "" }
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.card).tvFocus(c.accent, 10).clickable(enabled = r.done) { nav.push(Screen.Play(r.uri, r.title, "dl:" + r.id, Kind.MOVIE)) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (r.rec && r.running) "●" else if (r.done) "✓" else if (r.failed) "✕" else r.pct.toString() + "%", color = if (r.rec && r.running) Color(0xFFE11D48) else if (r.done) Color(0xFF22C55E) else if (r.failed) Color(0xFFE11D48) else c.accent, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(46.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text((if (r.rec) "REC · " else "") + r.title, color = c.text, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                        if (r.running && !r.rec) LinearProgressIndicator(progress = { r.pct / 100f }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), color = c.accent)
-                        Text((if (r.rec && r.running) stringResource(R.string.recording) + "  ·  " else if (r.done) stringResource(R.string.downloaded_on) + " " + when_ + "  ·  " else if (r.failed) stringResource(R.string.download_failed) + (if (r.error.isNotEmpty()) " (" + r.error + ")" else "") + "  ·  " else stringResource(R.string.downloading) + "  ·  ") + String.format("%.0f MB", r.bytes / 1048576.0) + (if (!r.legacy) "  🔒" else ""), color = c.muted, fontSize = 12.sp, maxLines = 1)
+                // TV remote: the Remove / Stop pill is a SIBLING of the clickable area (a button nested inside a clickable row can't be reached)
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.card), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).tvFocus(c.accent, 10).clickable(enabled = r.done) { nav.push(Screen.Play(r.uri, r.title, "dl:" + r.id, Kind.MOVIE)) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (r.rec && r.running) "●" else if (r.done) "✓" else if (r.failed) "✕" else r.pct.toString() + "%", color = if (r.rec && r.running) Color(0xFFE11D48) else if (r.done) Color(0xFF22C55E) else if (r.failed) Color(0xFFE11D48) else c.accent, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.width(46.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text((if (r.rec) "REC · " else "") + r.title, color = c.text, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            if (r.running && !r.rec) LinearProgressIndicator(progress = { r.pct / 100f }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), color = c.accent)
+                            Text((if (r.rec && r.running) stringResource(R.string.recording) + "  ·  " else if (r.done) stringResource(R.string.downloaded_on) + " " + when_ + "  ·  " else if (r.failed) stringResource(R.string.download_failed) + (if (r.error.isNotEmpty()) " (" + r.error + ")" else "") + "  ·  " else stringResource(R.string.downloading) + "  ·  ") + String.format("%.0f MB", r.bytes / 1048576.0) + (if (!r.legacy) "  🔒" else ""), color = c.muted, fontSize = 12.sp, maxLines = 1)
+                        }
                     }
-                    if (r.rec && r.running) Pill("■ " + stringResource(R.string.stop_recording), true) { tv.ninekpro.app.DlService.stop(act, r.id); rows = load() }
-                    else Pill(stringResource(R.string.remove), false) { ask = true }
+                    Box(Modifier.padding(end = 8.dp)) {
+                        if (r.rec && r.running) Pill("■ " + stringResource(R.string.stop_recording), true) { tv.ninekpro.app.DlService.stop(act, r.id); rows = load() }
+                        else Pill(stringResource(R.string.remove), false) { ask = true }
+                    }
                 }
                 if (ask) androidx.compose.material3.AlertDialog(onDismissRequest = { ask = false }, title = { Text(stringResource(R.string.remove) + "?") }, text = { Text(r.title) },
                     confirmButton = { BigButton(stringResource(R.string.remove)) { ask = false; if (r.legacy) Downloads.remove(act, r.id) else { if (r.running) tv.ninekpro.app.DlService.stop(act, r.id); DlStore.remove(act, r.id) }; rows = load() } }, dismissButton = { BigButton(stringResource(R.string.cancel), filled = false) { ask = false } })

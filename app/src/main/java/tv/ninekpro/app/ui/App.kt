@@ -1,6 +1,7 @@
 package tv.ninekpro.app.ui
 
 import android.app.Activity
+import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,7 +28,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import tv.ninekpro.app.Launch
 import tv.ninekpro.app.data.Category
+import tv.ninekpro.app.data.DeviceInfo
 import tv.ninekpro.app.data.Episode
 import tv.ninekpro.app.data.Item
 import tv.ninekpro.app.data.Kind
@@ -66,7 +70,7 @@ class Nav {
 
 val LocalRepo = staticCompositionLocalOf<Repo> { error("no repo") }
 val LocalNav = staticCompositionLocalOf<Nav> { error("no nav") }
-val LocalColors = staticCompositionLocalOf<SmileColors> { error("no colors") }
+val LocalColors = staticCompositionLocalOf<SmileColors> { smileColors(tv.ninekpro.app.data.Brand(), "gold") } // never crash a screen drawn outside the theme (TV recommendations / PiP / dialogs on some boxes)
 val LocalActivity = staticCompositionLocalOf<Activity> { error("no activity") }
 
 @Composable
@@ -80,19 +84,34 @@ fun App(repo: Repo, activity: Activity) {
         repo.checkCrashFix()
         // Instant start: if lists are cached, go to Home right away and refresh the session in the background.
         val quick = repo.loggedIn && repo.activePlaylist != null
-        if (quick) { nav.reset(Screen.Main(if (tv.ninekpro.app.Launch.openSports) 4 else 0)); tv.ninekpro.app.Launch.openSports = false; repo.preloadAll()
-            val rk = tv.ninekpro.app.Launch.openResume; if (rk.isNotEmpty()) { tv.ninekpro.app.Launch.openResume = ""; try { val r = repo.resumeOf(rk); val pl = repo.activePlaylist; if (r != null && pl != null) resumePlay(repo, nav, r) } catch (e: Throwable) {} }
-            val ck = tv.ninekpro.app.Launch.openChannel; if (ck.isNotEmpty()) { tv.ninekpro.app.Launch.openChannel = ""; try { val pl = repo.activePlaylist; if (pl != null) { val it = repo.content(pl, Kind.LIVE).items.firstOrNull { x -> x.key == ck }; if (it != null) { repo.liveContext = emptyList(); playItem(repo, nav, pl, it) } } } catch (e: Throwable) {} } }
+        if (quick) { nav.reset(Screen.Main(if (Launch.pending.value?.kind == "sports" && repo.brand.value.footballOn) 4 else 0)); repo.preloadAll() }
         repo.refreshSession()
-        if (repo.prefs.token.isEmpty()) repo.deviceHello()
+        if (repo.prefs.token.isEmpty() && !repo.prefs.loggedOut) repo.deviceHello()   // after "Sign out" the device must not log itself in again
         if (!quick) { delay(200); if (nav.current is Screen.Splash) nav.reset(if (repo.loggedIn && repo.activePlaylist != null) Screen.Main(0) else Screen.Playlists) }
         repo.preloadAll()
     }
+    // Opened from the TV home row / phone widget / match reminder — at start AND while the app is already open (onNewIntent sets Launch.pending).
+    LaunchedEffect(Unit) {
+        Launch.pending.collect { o ->
+            if (o == null) return@collect
+            Launch.take()
+            while (nav.current is Screen.Splash) delay(100)   // the start effect decides the first screen; a Play pushed over Splash would be wiped by its reset
+            val pl = repo.activePlaylist
+            if (!repo.loggedIn || pl == null) return@collect
+            try {
+                when (o.kind) {
+                    "sports" -> if (repo.brand.value.footballOn) nav.reset(Screen.Main(4))
+                    "channel" -> { val it = repo.content(pl, Kind.LIVE).items.firstOrNull { x -> x.key == o.key }; if (it != null) { repo.liveContext = emptyList(); playItem(repo, nav, pl, it) } }
+                    "resume" -> repo.resumeOf(o.key)?.let { r -> resumePlay(repo, nav, r) }
+                }
+            } catch (e: Throwable) {}
+        }
+    }
 
     // Back never closes the app by surprise: screen → previous screen → Home tab → "Exit?" question.
-    // Phones: the login screen follows the phone's rotation; after login the app is landscape. TV: always landscape.
+    // Phones: the login screen follows the phone's rotation (portrait typing is easier); after login the app is landscape. TV: always landscape.
     LaunchedEffect(nav.current is Screen.Playlists) {
-        try { activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE } catch (e: Exception) {}
+        try { activity.requestedOrientation = if (nav.current is Screen.Playlists && !DeviceInfo.isTv) ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE } catch (e: Exception) {}
     }
     BackHandler(enabled = true) {
         when {
@@ -102,11 +121,6 @@ fun App(repo: Repo, activity: Activity) {
             else -> exitAsk = true
         }
     }
-    if (exitAsk) androidx.compose.material3.AlertDialog(onDismissRequest = { exitAsk = false },
-        confirmButton = { BigButton(androidx.compose.ui.res.stringResource(tv.ninekpro.app.R.string.exit)) { exitAsk = false; activity.finish() } },
-        dismissButton = { BigButton(androidx.compose.ui.res.stringResource(tv.ninekpro.app.R.string.cancel), filled = false) { exitAsk = false } },
-        title = { Text(androidx.compose.ui.res.stringResource(tv.ninekpro.app.R.string.exit_q)) })
-
     CompositionLocalProvider(LocalRepo provides repo, LocalNav provides nav, LocalColors provides colors, LocalActivity provides activity) {
         SmileTheme(colors) {
             Box(Modifier.fillMaxSize().background(colors.gradient)) {
@@ -118,7 +132,7 @@ fun App(repo: Repo, activity: Activity) {
                     is Screen.Series -> SeriesScreen(s.item)
                     is Screen.Movie -> MovieScreen(s.item)
                     is Screen.Multi -> MultiScreen()
-                    is Screen.Play -> PlayerScreen(s)
+                    is Screen.Play -> key(s.key) { PlayerScreen(s) }   // a new video = a fresh player screen (no state left over from the previous one)
                     is Screen.Settings -> SettingsScreen(themeMode) { themeMode = it; repo.prefs.theme = it }
                     is Screen.Downloads -> DownloadsScreen()
                     is Screen.Search -> SearchScreen(s.q)
@@ -126,6 +140,11 @@ fun App(repo: Repo, activity: Activity) {
                     is Screen.Continue -> ContinueScreen()
                     is Screen.Guide -> GuideScreen()
                 }
+                // inside the theme so the dialog gets the Smile font / colours (it used to be drawn outside SmileTheme)
+                if (exitAsk) androidx.compose.material3.AlertDialog(onDismissRequest = { exitAsk = false },
+                    confirmButton = { BigButton(androidx.compose.ui.res.stringResource(tv.ninekpro.app.R.string.exit)) { exitAsk = false; activity.finish() } },
+                    dismissButton = { BigButton(androidx.compose.ui.res.stringResource(tv.ninekpro.app.R.string.cancel), filled = false) { exitAsk = false } },
+                    title = { Text(androidx.compose.ui.res.stringResource(tv.ninekpro.app.R.string.exit_q)) })
             }
         }
     }

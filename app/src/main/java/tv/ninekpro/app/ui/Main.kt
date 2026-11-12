@@ -50,6 +50,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -62,6 +64,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import tv.ninekpro.app.R
 import tv.ninekpro.app.data.Kind
+import tv.ninekpro.app.data.ResumeEntry
 
 fun clockText(fmt24: Boolean): String = java.text.SimpleDateFormat(if (fmt24) "HH:mm" else "h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
 
@@ -84,8 +87,9 @@ fun TopTabs(tab: Int, onTab: (Int) -> Unit) {
         Box(Modifier.size(36.dp).clip(RoundedCornerShape(18.dp)).glass(c, 18).tvFocus(c.accent, 18).clickable { nav.push(Screen.Search("")) }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Search, null, tint = c.text, modifier = Modifier.size(18.dp)) }
         Spacer(Modifier.weight(1f))
         val account by repo.account.collectAsState(); val acc = account
-        val act = LocalActivity.current
-        Box(Modifier.size(36.dp).clip(RoundedCornerShape(18.dp)).glass(c, 18).tvFocus(c.accent, 18).clickable { repo.forceReload(); repo.syncNow(); try { android.widget.Toast.makeText(act, act.getString(R.string.refreshing), android.widget.Toast.LENGTH_SHORT).show() } catch (e: Exception) {}; nav.reset(Screen.Main(nav.mainTab)) }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Refresh, null, tint = c.text, modifier = Modifier.size(18.dp)) }
+        val act = LocalActivity.current; val scope = rememberCoroutineScope()
+        // Refresh: ask the panel for the current playlists first (a playlist the seller changed shows up now), then re-download the lists
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(18.dp)).glass(c, 18).tvFocus(c.accent, 18).clickable { scope.launch { repo.refreshAll(); repo.syncNow() }; try { android.widget.Toast.makeText(act, act.getString(R.string.refreshing), android.widget.Toast.LENGTH_SHORT).show() } catch (e: Exception) {}; nav.reset(Screen.Main(nav.mainTab)) }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Refresh, null, tint = c.text, modifier = Modifier.size(18.dp)) }
         Spacer(Modifier.width(6.dp))
         Box(Modifier.size(36.dp).clip(RoundedCornerShape(18.dp)).glass(c, 18).tvFocus(c.accent, 18).clickable { nav.push(Screen.Settings) }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Settings, null, tint = c.text, modifier = Modifier.size(18.dp)) }
         Spacer(Modifier.width(10.dp))
@@ -127,9 +131,18 @@ fun HomePane(goTab: (Int) -> Unit) {
     val acc = account; val anon = acc?.username?.startsWith("mac:") == true
     val crashActive = remember(tick, playlists) { repo.crashFixActive() }
     val counts = remember(tick, active?.id) { Kind.values().associateWith { k -> active?.let { repo.cachedContent(it, k)?.items?.size } } }
+    val isTv = tv.ninekpro.app.data.DeviceInfo.isTv || repo.prefs.deviceType == "tv"
+    // TV: the remote starts on the first Home tile (otherwise nothing is focused and the first key press goes nowhere)
+    val firstTile = remember { FocusRequester() }
+    LaunchedEffect(shown) { if (shown && isTv) { delay(400); try { firstTile.requestFocus() } catch (e: Throwable) {} } }
+    // sideload flavour: a newer APK on the panel → "Version X is available" banner (checkUpdate returns null in the Play flavour)
+    var upd by remember { mutableStateOf<tv.ninekpro.app.data.UpdateInfo?>(null) }
+    if (!tv.ninekpro.app.BuildConfig.PLAY_BUILD) LaunchedEffect(Unit) { try { tv.ninekpro.app.data.Updater.restore(act, tv.ninekpro.app.BuildConfig.VERSION_CODE) } catch (e: Throwable) {}; upd = try { repo.checkUpdate() } catch (e: Throwable) { null } }
+    val updPending by tv.ninekpro.app.data.Updater.pendingInfo.collectAsState()
     MatchChannels(pick) { pick = null }
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
         val tall = maxHeight > 560.dp
+        val midTall = maxHeight > 480.dp   // read here: inside Column/Row lambdas the BoxWithConstraints receiver is not implicit (DSL marker)
         // faint brand watermark
         BrandLogo(brand.logo, Modifier.align(Alignment.BottomEnd).padding(24.dp).size(200.dp, 90.dp), alpha = 0.05f)
         androidx.compose.animation.AnimatedVisibility(visible = shown, enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(350)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(350)) { it / 12 }) {
@@ -140,7 +153,6 @@ fun HomePane(goTab: (Int) -> Unit) {
                 Text(clock, color = c.text, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold); Spacer(Modifier.width(10.dp))
                 Text(dateText() + (wx?.let { "  ·  " + repo.weatherIcon() + " " + it.second + "°" + (if (it.first.isNotEmpty()) " " + it.first else "") } ?: ""), color = c.muted, fontSize = 12.5.sp, maxLines = 1)
             }
-            val isTv = tv.ninekpro.app.data.DeviceInfo.isTv || repo.prefs.deviceType == "tv"
             var waQr by remember { mutableStateOf(false) }
             if (waQr && acc != null) WaQrDialog(brand.whatsapp, brand.renewText.replace("{username}", acc.username)) { waQr = false }
             val renewAction: () -> Unit = { if (isTv) waQr = true else openWhatsApp(act, brand.whatsapp, brand.renewText.replace("{username}", acc?.username ?: "")) }
@@ -153,11 +165,13 @@ fun HomePane(goTab: (Int) -> Unit) {
                 else Banner((if (m.title.isNotEmpty()) m.title + " — " else "") + m.text, when (m.kind) { "warn" -> Color(0xFFE11D48); "promo" -> c.accent; else -> Color(0xFF3B82F6) }, stringResource(R.string.ok)) { repo.markMessagesSeen(listOf(m.id)) }
             }
             if (crashMsg.isNotEmpty()) Banner(crashMsg, c.accent, stringResource(R.string.ok)) { crashMsg = "" }
+            // sideload: a newer APK on the panel, or one downloaded earlier and not installed yet → the in-app updater (data/Updater.kt)
+            if (!tv.ninekpro.app.BuildConfig.PLAY_BUILD) { val u: tv.ninekpro.app.data.UpdateInfo? = upd?.takeIf { it.code > tv.ninekpro.app.BuildConfig.VERSION_CODE } ?: updPending; if (u != null) UpdateBanner(u) }
             // match day
             MatchRow { pick = it }
             Gap(8)
             Row(Modifier.fillMaxWidth().weight(1f).heightIn(min = 120.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                BigTile(stringResource(R.string.live), Icons.Default.LiveTv, Modifier.weight(1f), counts[Kind.LIVE]?.let { stringResource(R.string.n_channels, it) }) { goTab(1) }
+                BigTile(stringResource(R.string.live), Icons.Default.LiveTv, Modifier.weight(1f).focusRequester(firstTile), counts[Kind.LIVE]?.let { stringResource(R.string.n_channels, it) }) { goTab(1) }
                 BigTile(stringResource(R.string.movies), Icons.Default.Movie, Modifier.weight(1f), counts[Kind.MOVIE]?.let { stringResource(R.string.n_titles, it) }) { goTab(2) }
                 BigTile(stringResource(R.string.series), Icons.Default.Tv, Modifier.weight(1f), counts[Kind.SERIES]?.let { stringResource(R.string.n_shows, it) }) { goTab(3) }
             }
@@ -187,11 +201,21 @@ fun HomePane(goTab: (Int) -> Unit) {
                         e == "panel_refused" -> act.getString(R.string.crash_fix_refused); else -> "❌ " + e }
                     if (e == null) nav.reset(Screen.Main(0)) } } },
                 dismissButton = { BigButton(stringResource(R.string.cancel), filled = false) { crashAsk = false } })
-            val favs = remember(pv) { repo.favorites().take(20) }
-            val favItems = remember(favs, active?.id, tick) { favs.mapNotNull { k -> Kind.values().firstNotNullOfOrNull { kind -> active?.let { pl -> repo.cachedContent(pl, kind)?.items?.firstOrNull { it.key == k } } } } }
+            // continue watching: the last things played, with a progress bar · tap = resume · long-press = remove
+            val cw = remember(pv) { repo.resumeList().take(12) }
+            if (cw.isNotEmpty() && midTall) {
+                Gap(8)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    SectionTitle(stringResource(R.string.continue_watching).uppercase()); Spacer(Modifier.weight(1f))
+                    Pill(stringResource(R.string.see_all) + " " + fwdArrow(), false) { nav.push(Screen.Continue) }
+                }
+                LazyRow(Modifier.restoreFocus(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(cw, key = { "cw:" + it.key }) { r -> ContinueCard(r, onClick = { resumePlay(repo, nav, r) }, onRemove = { repo.removeResume(r.key) }) } }
+            }
+            val favs = remember(pv) { repo.favorites().distinct().take(20) }
+            val favItems = remember(favs, active?.id, tick) { favs.mapNotNull { k -> Kind.values().firstNotNullOfOrNull { kind -> active?.let { pl -> repo.cachedContent(pl, kind)?.items?.firstOrNull { it.key == k } } } }.distinctBy { it.key } }
             if (favItems.isNotEmpty() && tall) {
                 Gap(10); SectionTitle(stringResource(R.string.favorites).uppercase())
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(favItems, key = { it.key }) { it -> PosterCard(it, 84) { scope.launch { active?.let { pl -> if (it.kind == Kind.SERIES) nav.push(Screen.Series(it)) else if (it.kind == Kind.MOVIE) nav.push(Screen.Movie(it)) else { repo.liveContext = favItems.filter { x -> x.kind == Kind.LIVE }; playItem(repo, nav, pl, it) } } } } } }
+                LazyRow(Modifier.restoreFocus(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(favItems, key = { "fav:" + it.key }) { it -> PosterCard(it, 84) { scope.launch { active?.let { pl -> if (it.kind == Kind.SERIES) nav.push(Screen.Series(it)) else if (it.kind == Kind.MOVIE) nav.push(Screen.Movie(it)) else { repo.liveContext = favItems.filter { x -> x.kind == Kind.LIVE }; playItem(repo, nav, pl, it) } } } } } }
             }
             Spacer(Modifier.weight(0.01f))
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -201,6 +225,33 @@ fun HomePane(goTab: (Int) -> Unit) {
             }
         } }
     }
+}
+
+/**
+ * Sideload flavour only: the in-app update banner (Home and Settings → App update). Text follows `Updater.progress`:
+ * available → "Update" starts the download · 0..99 "Downloading update… N %" · 100 "Update downloaded — tap to install" (or "Installing…" once
+ * the installer opened) · API 26+ permission missing → "Allow installing updates…" · failed → "Download failed — tap to retry", and after two
+ * failures the button opens the APK link in the browser instead.
+ */
+@Composable
+fun UpdateBanner(u: tv.ninekpro.app.data.UpdateInfo) {
+    val c = LocalColors.current; val act = LocalActivity.current
+    val progress by tv.ninekpro.app.data.Updater.progress.collectAsState()
+    val askPerm by tv.ninekpro.app.data.Updater.askPermission.collectAsState()
+    val installing by tv.ninekpro.app.data.Updater.installing.collectAsState()
+    val failures by tv.ninekpro.app.data.Updater.failures.collectAsState()
+    val text: String = when {
+        askPerm -> stringResource(R.string.update_allow)
+        progress in 0..99 -> stringResource(R.string.update_downloading, progress)
+        progress == 100 && installing -> stringResource(R.string.update_installing)
+        progress == 100 -> stringResource(R.string.update_ready)
+        progress == tv.ninekpro.app.data.Updater.FAILED -> stringResource(R.string.update_failed)
+        else -> stringResource(R.string.update_available, u.name)
+    }
+    val browser: Boolean = progress == tv.ninekpro.app.data.Updater.FAILED && failures >= 2
+    val action: String? = if (progress in 0..99) null else if (browser) stringResource(R.string.update_browser) else stringResource(R.string.update)
+    val color: Color = if (progress == tv.ninekpro.app.data.Updater.FAILED) Color(0xFFE11D48) else c.accent
+    Banner(text, color, action) { if (browser) tv.ninekpro.app.data.Updater.openInBrowser(act, u) else tv.ninekpro.app.data.Updater.start(act, u) }
 }
 
 /** Change server: pick another playlist (line), or another host of the current playlist. */
@@ -217,7 +268,7 @@ fun ChangeServerDialog(mode: String, onClose: () -> Unit) {
                 val cur = repo.currentHost(active)
                 active.hosts.forEachIndexed { i, h -> val on = cur.isNotEmpty() && h.contains(cur.removePrefix("http://").removePrefix("https://"))
                     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (on) c.accent.copy(alpha = 0.18f) else Color.Transparent).tvFocus(c.accent, 8).clickable { repo.setHost(active, h); onClose(); nav.reset(Screen.Main(0)) }.padding(10.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.server_n, i + 1) + "  ·  " + h.removePrefix("http://").removePrefix("https://"), color = if (on) c.accent else c.text, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis); if (on) Text("✓", color = c.accent) } } }
+                        Text(stringResource(R.string.server_n, i + 1), color = if (on) c.accent else c.text, fontSize = 13.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis); if (on) Text("✓", color = c.accent) } } }
             if (mode == "server" && (active == null || active.hosts.size <= 1)) Text(stringResource(R.string.one_server_only), color = c.muted, fontSize = 13.sp)
         } })
 }
@@ -263,6 +314,17 @@ fun PosterCard(it: tv.ninekpro.app.data.Item, w: Int, onClick: () -> Unit) {
             if (it.rating.isNotEmpty() && it.rating != "0") Text("★ " + it.rating.take(3), color = Color.White, fontSize = 10.sp, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).background(Color(0x99000000), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 2.dp))
             repo.resumeOf(it.key)?.let { r -> if (r.durationMs > 0) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth((r.positionMs.toFloat() / r.durationMs).coerceIn(0.02f, 1f)).height(3.dp).background(c.accent)) } }
         Text(it.name, color = c.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(4.dp))
+    }
+}
+
+/** Home "Continue watching" card: wide thumbnail + progress bar + title. Tap = resume, long-press = remove from the list. */
+@Composable
+fun ContinueCard(r: ResumeEntry, onClick: () -> Unit, onRemove: () -> Unit) {
+    val c = LocalColors.current
+    Column(Modifier.width(124.dp).clip(RoundedCornerShape(8.dp)).tvFocus(c.accent, 8).combinedClickable(onClick = onClick, onLongClick = onRemove)) {
+        Box { Poster(r.image, Modifier.fillMaxWidth().height(70.dp), contentScaleFit = r.kind == "LIVE")
+            if (r.durationMs > 0) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color(0x66000000))) { Box(Modifier.fillMaxWidth((r.positionMs.toFloat() / r.durationMs).coerceIn(0.02f, 1f)).height(3.dp).background(c.accent)) } }
+        Text(r.title, color = c.text, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(4.dp, 3.dp))
     }
 }
 

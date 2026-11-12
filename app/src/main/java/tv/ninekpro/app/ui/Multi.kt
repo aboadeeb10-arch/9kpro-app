@@ -31,14 +31,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import tv.ninekpro.app.R
+import tv.ninekpro.app.data.DeviceInfo
 import tv.ninekpro.app.data.Item
 import tv.ninekpro.app.data.Kind
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 
@@ -52,10 +59,28 @@ fun MultiScreen() {
     var focus by remember { mutableStateOf(0) }
     val slots = remember { mutableListOf<Item?>(null, null, null, null) }
     var tick by remember { mutableStateOf(0) }
-    val players = remember { List(4) { val http = DefaultHttpDataSource.Factory().setUserAgent("9KProTV/1.0").setAllowCrossProtocolRedirects(true); ExoPlayer.Builder(act).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build() } }
-    DisposableEffect(Unit) { onDispose { players.forEach { try { it.release() } catch (e: Exception) {} } } }
-    PauseInBackground(onStop = { players.forEach { try { it.pause() } catch (e: Exception) {} } }, onStart = { players.forEach { try { it.play() } catch (e: Exception) {} } })
-    LaunchedEffect(focus, tick) { players.forEachIndexed { i, p -> p.volume = if (i == focus) 1f else 0f } }
+    // Players are built lazily per window (2 or 4) with a small buffer — four full players at once killed weak boxes.
+    val players = remember { arrayOfNulls<ExoPlayer>(4) }
+    val errs = remember { mutableStateListOf("", "", "", "") }
+    fun playerAt(i: Int): ExoPlayer {
+        players[i]?.let { return it }
+        val http = DefaultHttpDataSource.Factory().setUserAgent("9KProTV/1.0").setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15000).setReadTimeoutMs(20000)
+        val lc = DefaultLoadControl.Builder().setBufferDurationsMs(if (DeviceInfo.lite) 5_000 else 8_000, if (DeviceInfo.lite) 10_000 else 20_000, 700, 1_500).setPrioritizeTimeOverSizeThresholds(false).build()
+        // Only window 0 asks for audio focus: several players requesting focus would silence each other.
+        val p = ExoPlayer.Builder(act).setLoadControl(lc).setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .setAudioAttributes(AudioAttributes.DEFAULT, i == 0).setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK).build()
+        p.volume = if (i == focus) 1f else 0f
+        p.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) { errs[i] = error.errorCodeName.removePrefix("ERROR_CODE_").replace('_', ' ').lowercase() }
+            override fun onPlaybackStateChanged(playbackState: Int) { if (playbackState == Player.STATE_READY) errs[i] = "" }
+        })
+        players[i] = p; return p
+    }
+    fun releaseAt(i: Int) { try { players[i]?.release() } catch (e: Exception) {}; players[i] = null; slots[i] = null; errs[i] = "" }
+    DisposableEffect(Unit) { onDispose { for (i in 0 until 4) releaseAt(i) } }
+    PauseInBackground(onStop = { players.forEach { try { it?.pause() } catch (e: Exception) {} } }, onStart = { players.forEach { try { it?.play() } catch (e: Exception) {} } })
+    LaunchedEffect(focus, tick) { players.forEachIndexed { i, p -> p?.volume = if (i == focus) 1f else 0f } }
+    LaunchedEffect(count) { if (count == 2) { releaseAt(2); releaseAt(3); if (focus > 1) focus = 0; tick++ } }
     var channels by remember { mutableStateOf<List<Item>>(emptyList()) }
     LaunchedEffect(pl.id) { try { channels = repo.content(pl, Kind.LIVE).items } catch (e: Throwable) {} }
     var q by remember { mutableStateOf("") }
@@ -68,8 +93,9 @@ fun MultiScreen() {
             }
             val cells: @Composable (Int, Modifier) -> Unit = { i, m ->
                 Box(m.padding(3.dp).background(Color.Black).border(2.dp, if (focus == i) c.accent else c.line).clickable { focus = i }) {
-                    AndroidView(factory = { ctx -> PlayerView(ctx).apply { useController = false; player = players[i]; setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS) } }, modifier = Modifier.fillMaxSize())
+                    AndroidView(factory = { ctx -> PlayerView(ctx).apply { useController = false; player = playerAt(i); setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS) } }, onRelease = { it.player = null }, modifier = Modifier.fillMaxSize())
                     val it = slots[i]; Text(it?.name ?: stringResource(R.string.pick_channel), color = Color.White, fontSize = 12.sp, modifier = Modifier.align(Alignment.BottomStart).background(Color(0x88000000)).padding(6.dp, 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (errs[i].isNotEmpty()) Column(Modifier.align(Alignment.Center).background(Color(0xAA000000)).padding(10.dp, 6.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(stringResource(R.string.err_generic), color = Color.White, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis); Text(errs[i], color = Color.Gray, fontSize = 10.sp, maxLines = 1) }
                 }
             }
             if (count == 2) Row(Modifier.fillMaxSize()) { cells(0, Modifier.weight(1f).fillMaxHeight()); cells(1, Modifier.weight(1f).fillMaxHeight()) }
@@ -81,7 +107,7 @@ fun MultiScreen() {
             val list = remember(q, channels) { if (q.length < 2) channels.take(300) else channels.filter { it.name.contains(q, true) }.take(300) }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(list, key = { it.key }) { ch ->
-                    Row(Modifier.fillMaxWidth().tvFocus(c.accent, 6).clickable { slots[focus] = ch; tick++; val p = players[focus]; scope.launch { try { val u = repo.streamUrl(pl, ch); p.setMediaItem(MediaItem.fromUri(u)); p.prepare(); p.playWhenReady = true } catch (e: Exception) {} } }.padding(10.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().tvFocus(c.accent, 6).clickable { slots[focus] = ch; tick++; val p = playerAt(focus); errs[focus] = ""; scope.launch { try { val u = repo.streamUrl(pl, ch); p.setMediaItem(MediaItem.fromUri(u)); p.prepare(); p.playWhenReady = true } catch (e: Exception) { errs[focus] = e.message ?: "error" } } }.padding(10.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Poster(ch.icon, Modifier.width(28.dp).fillMaxHeight(), contentScaleFit = true); Text("  " + ch.name, color = c.text, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }

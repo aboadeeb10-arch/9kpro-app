@@ -41,8 +41,15 @@ fun SettingsScreen(onTheme: (String) -> Unit, onLang: (String) -> Unit) {
     fun choose(title: String, options: List<Pair<String, String>>, cur: String, on: (String) -> Unit) { pick = title; chooser = Triple(options, cur, on) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         BackRow(T("settings"))
-        LazyVerticalGrid(GridCells.Adaptive(220.dp), Modifier.padding(horizontal = 16.dp).height(520.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyVerticalGrid(GridCells.Adaptive(220.dp), Modifier.padding(horizontal = 16.dp).height(860.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { STile(Icons.Default.PlaylistPlay, s("playlists"), repo.activePlaylist?.name ?: "") { nav.push(Screen.Playlists) } }
+            item { STile(Icons.Default.Download, s("downloads"), s("downloads_hint").take(40)) { nav.push(Screen.Downloads) } }
+            item { STile(Icons.Default.GridView, s("multi_screen"), s("four_screens")) { nav.push(Screen.Multi) } }
+            item { STile(Icons.Default.Memory, s("hw_decode"), if (repo.prefs.hwDecode == "off") s("off") else s("automatic")) { choose("hw", listOf("auto" to s("automatic"), "off" to s("off")), repo.prefs.hwDecode) { repo.prefs.hwDecode = it; Vlc.hwDecode = it; win.toast(s("restart_hint")); tick++ } } }
+            item { STile(Icons.Default.Tv, s("deinterlace"), when (repo.prefs.deinterlace) { "auto" -> s("automatic"); "yadif" -> s("on"); else -> s("off") }) { choose("di", listOf("off" to s("off"), "auto" to s("automatic"), "yadif" to s("on")), repo.prefs.deinterlace) { repo.prefs.deinterlace = it; Vlc.deinterlace = it; win.toast(s("restart_hint")); tick++ } } }
+            item { STile(Icons.Default.HourglassBottom, s("buffer"), when (repo.prefs.netCache) { 3000 -> s("buffer_mid"); 6000 -> s("buffer_long"); else -> s("buffer_small") }) { choose("buf", listOf("1500" to s("buffer_small"), "3000" to s("buffer_mid"), "6000" to s("buffer_long")), repo.prefs.netCache.toString()) { repo.prefs.netCache = it.toInt(); Vlc.netCache = it.toInt(); win.toast(s("restart_hint")); tick++ } } }
+            item { STile(Icons.Default.Minimize, s("close_to_tray"), if (repo.prefs.trayOnClose) s("on") else s("off")) { repo.prefs.trayOnClose = !repo.prefs.trayOnClose; tick++ } }
+            item { STile(Icons.Default.VisibilityOff, s("start_in_tray"), if (repo.prefs.startInTray) s("on") else s("off")) { repo.prefs.startInTray = !repo.prefs.startInTray; tick++ } }
             item { STile(Icons.Default.Language, s("change_language"), when (lang) { "ar" -> "العربية"; "iw" -> "עברית"; else -> "English" }) { choose("lang", listOf("" to s("automatic"), "en" to "English", "ar" to "العربية", "iw" to "עברית"), repo.prefs.language) { onLang(it) } } }
             item { STile(Icons.Default.Palette, s("theme"), repo.prefs.theme.ifEmpty { "gold" }) { choose("theme", listOf("gold" to "Gold", "navy" to s("theme_navy"), "light" to s("theme_light"), "amoled" to s("theme_amoled")), repo.prefs.theme.ifEmpty { "gold" }) { onTheme(it); tick++ } } }
             item { STile(Icons.Default.Hd, s("live_format"), repo.prefs.liveFormat.uppercase()) { choose("fmt", listOf("auto" to s("automatic"), "hls" to "HLS (m3u8)", "ts" to "MPEG-TS"), repo.prefs.liveFormat) { repo.prefs.liveFormat = it; tick++ } } }
@@ -63,7 +70,8 @@ fun SettingsScreen(onTheme: (String) -> Unit, onLang: (String) -> Unit) {
             Column(Modifier.weight(1f)) { Text(T("app_version"), color = c.muted, fontSize = 11.sp); Text(AppInfo.VERSION + " " + AppInfo.platform, color = c.text, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
             PBtn(T("copy")) { try { java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(repo.prefs.deviceMac().uppercase() + "  " + repo.prefs.deviceKey()), null); win.toast(Strings.get(lang, "copied")) } catch (e: Throwable) {} }
         }
-        Text(T("shortcuts"), color = c.muted, fontSize = 11.5.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        Text(T("shortcuts") + "\n" + T("keys_more"), color = c.muted, fontSize = 11.5.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        Spacer(Modifier.height(if (tick >= 0) 10.dp else 0.dp))   // reads `tick` so toggled tiles redraw
     }
     val ch = chooser
     if (pick.isNotEmpty() && ch != null) AlertDialog(onDismissRequest = { pick = "" }, confirmButton = {}, title = { Text(pick) }, text = {

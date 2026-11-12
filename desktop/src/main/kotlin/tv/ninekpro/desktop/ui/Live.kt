@@ -7,6 +7,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,7 +53,7 @@ fun LivePane() {
         val sorted = when (repo.prefs.liveSort) { "az" -> base.sortedBy { it.name.lowercase() }; "number" -> base.sortedBy { it.num }; else -> base }
         repo.applyOrder("live:$cat", sorted) { it.key } }
     LaunchedEffect(sel?.key, ev) { val s = sel; if (s != null && pl != null) nn = repo.nowNextLive(pl, s) }
-    fun preview(it: Item) { sel = it; repo.liveUiSel = it; repo.liveContext = channels; if (pl == null) return
+    fun preview(it: Item) { sel = it; repo.liveUiSel = it; repo.liveContext = channels; p.title = it.name; if (pl == null) return
         scope.launch { try { val u = repo.streamUrl(pl, it, repo.prefs.liveFormat == "ts"); p.play(u); repo.setLastChannel(it.key); repo.nowPlaying = JSONObject().put("id", it.key).put("name", it.name).put("kind", "LIVE") } catch (e: Throwable) { win.toast(e.message ?: "error") } } }
     fun full() { val s = sel ?: return; repo.liveContext = channels; p.handoff = true; nav.push(Screen.Play(p.url, s.name, s, live = true, image = s.icon)) }
     // leaving the Live tab (Home / Movies / Settings…) stops the preview; going to full screen keeps it (handoff)
@@ -74,12 +75,12 @@ fun LivePane() {
         Box(Modifier.weight(0.30f).fillMaxHeight().glass(c, 12).padding(6.dp)) {
             if (content == null) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { if (err.isNotEmpty()) Text(err, color = c.muted) else Loading(T("loading")) }
             LazyColumn(state = ls) {
-                items(channels, key = { it.key }) { it ->
+                itemsIndexed(channels, key = { _, x -> x.key }) { idx, it ->
                     val s = it.key == sel?.key
                     val now = pl?.let { p2 -> repo.nowNext(p2, it).first }
                     Row(Modifier.fillMaxWidth().padding(vertical = 1.dp).clip(RoundedCornerShape(8.dp)).background(if (s) c.accent.copy(alpha = 0.35f) else Color.Transparent).hoverGlow(c.accent, 8, 1f)
                         .combinedClickable(onDoubleClick = { if (sel?.key != it.key) preview(it); full() }, onLongClick = { repo.toggleFavorite(it.key) }) { preview(it) }.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (it.num > 0) it.num.toString() else "", color = c.muted, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+                        Text((idx + 1).toString(), color = c.muted, fontSize = 11.sp, modifier = Modifier.width(30.dp))
                         AsyncImage(it.icon, Modifier.size(40.dp, 26.dp), contentScale = ContentScale.Fit) { Icon(Icons.Default.LiveTv, null, tint = c.muted, modifier = Modifier.size(18.dp)) }
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) { Text(it.name, color = c.text, fontSize = 13.sp, fontWeight = if (s) FontWeight.Bold else FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)

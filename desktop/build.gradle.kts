@@ -7,9 +7,12 @@ plugins {
 }
 
 group = "tv.ninekpro"
-version = "1.0.3"   // desktop line: MSI/DMG need major >= 1
+version = "1.1.0"   // desktop line: MSI/DMG need major >= 1
 
 kotlin { jvmToolchain(17) }
+
+// the app reads its version from resources/version.properties (filled here) — bump ONLY the `version` line above
+tasks.processResources { filesMatching("version.properties") { expand("version" to project.version.toString()) } }
 
 dependencies {
     implementation(compose.desktop.currentOs)
@@ -35,7 +38,7 @@ compose.desktop {
             description = "9K Pro TV"
             vendor = "9K Pro TV"
             copyright = "9K Pro TV"
-            modules("java.naming", "java.net.http", "jdk.unsupported", "java.management", "java.sql", "jdk.crypto.ec")
+            modules("java.naming", "java.net.http", "jdk.unsupported", "java.management", "java.sql", "jdk.crypto.ec", "jdk.httpserver")
             appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
             windows {
                 menu = true; shortcut = true; perUserInstall = true; dirChooser = false

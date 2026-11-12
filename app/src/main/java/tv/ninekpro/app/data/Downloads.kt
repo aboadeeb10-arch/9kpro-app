@@ -2,6 +2,7 @@ package tv.ninekpro.app.data
 
 import android.app.DownloadManager
 import android.content.Context
+import android.net.ConnectivityManager
 import android.net.Uri
 import android.os.Environment
 import android.widget.Toast
@@ -15,7 +16,11 @@ object Downloads {
         enqueue(AppCtx.ctx, repo, url, title, ext)
     }
 
+    /** True when the "Wi-Fi only" switch is on and the current network is metered (mobile data / hotspot). */
+    fun blockedByWifiOnly(ctx: Context, repo: Repo): Boolean = repo.prefs.wifiOnlyDownloads && try { (ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).isActiveNetworkMetered } catch (e: Exception) { false }
+
     fun enqueue(ctx: Context, repo: Repo, url: String, title: String, ext: String) {
+        if (blockedByWifiOnly(ctx, repo)) { Toast.makeText(ctx, "Wi-Fi only: connect to Wi-Fi or turn the switch off in Settings", Toast.LENGTH_LONG).show(); return }
         // v0.8.1: encrypted download through DlService (file unplayable outside 9K Pro TV); the DownloadManager path below is kept only for old rows
         try { val safe = title.replace(Regex("[^A-Za-z0-9 _.\\-\\u0600-\\u06FF\\u0590-\\u05FF]"), "_").take(80); tv.ninekpro.app.DlService.start(ctx, DlStore.newId(), url, safe, "movie"); Toast.makeText(ctx, "⬇ " + safe, Toast.LENGTH_SHORT).show(); return } catch (e: Exception) { Toast.makeText(ctx, "Download failed: " + e.message, Toast.LENGTH_SHORT).show(); return }
         try {

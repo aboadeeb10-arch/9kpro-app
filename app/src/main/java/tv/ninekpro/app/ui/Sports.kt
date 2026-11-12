@@ -80,21 +80,29 @@ fun MatchCard(m: Match, width: Int = 240, compact: Boolean = false, onPick: (Mat
 /** Dialog: which of the customer's channels show this match (from the guide), tap to play. */
 @Composable
 fun MatchChannels(m: Match?, onClose: () -> Unit) {
-    val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current; val scope = rememberCoroutineScope()
+    val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current; val scope = rememberCoroutineScope(); val act = LocalActivity.current
     if (m == null) return
     val pl = repo.activePlaylist ?: return
-    val ev by repo.epgVersion.collectAsState()
-    val chans = remember(m.id, ev) { repo.channelsForMatch(m) }
+    val ev by repo.epgVersion.collectAsState(); val pv by repo.profileVersion.collectAsState()
+    val hits = remember(m.id, ev) { repo.channelsForMatch(m) }
+    val fromGuide = hits.any { it.fromGuide }
+    val chans = remember(hits) { hits.map { it.item } }
+    var remind by remember(m.id, pv) { mutableStateOf(repo.reminders().contains(m.id)) }
     androidx.compose.material3.AlertDialog(onDismissRequest = onClose, confirmButton = { BigButton(stringResource(R.string.cancel), filled = false) { onClose() } },
         title = { Text(teamName(m.home) + " – " + teamName(m.away), fontSize = 17.sp) },
         text = { Column {
-            Text(stringResource(R.string.match_channels), color = c.muted, fontSize = 12.sp); Gap(6)
-            if (chans.isEmpty()) Text(stringResource(R.string.match_no_channel), color = c.muted, fontSize = 13.sp)
-            LazyColumn(Modifier.height((chans.size.coerceIn(1, 7) * 46).dp)) { items(chans, key = { it.key }) { ch ->
-                val now = repo.nowNext(pl, ch).first?.title ?: ""
+            // upcoming match: "Remind me" lives here too — on TV the ⏰ on the card itself can't be reached with the remote
+            if (m.upcoming) { Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).tvFocus(c.accent, 8).clickable { if (android.os.Build.VERSION.SDK_INT >= 33 && act.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) act.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7); remind = repo.toggleReminder(m) }.padding(8.dp, 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("⏰", color = if (remind) c.accent else c.muted, fontSize = 14.sp); Spacer(Modifier.width(10.dp))
+                Text(stringResource(if (remind) R.string.remove_reminder else R.string.remind_me), color = if (remind) c.accent else c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                Gap(6) }
+            Text(stringResource(if (hits.isEmpty() || fromGuide) R.string.match_channels else R.string.match_sports_only), color = if (fromGuide) c.muted else Color(0xFFF59E0B), fontSize = 12.sp); Gap(6)
+            if (hits.isEmpty()) Text(stringResource(R.string.match_no_channel), color = c.muted, fontSize = 13.sp)
+            LazyColumn(Modifier.height((hits.size.coerceIn(1, 7) * 46).dp)) { items(hits, key = { it.item.key }) { h -> val ch = h.item
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).tvFocus(c.accent, 8).clickable { onClose(); repo.liveContext = chans; scope.launch { playItem(repo, nav, pl, ch) } }.padding(8.dp, 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Poster(ch.icon, Modifier.size(40.dp, 26.dp), contentScaleFit = true); Spacer(Modifier.width(10.dp))
-                    Column { Text(ch.name, color = c.text, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); if (now.isNotEmpty()) Text(now, color = c.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Column(Modifier.weight(1f)) { Text(ch.name, color = c.text, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis); if (h.title.isNotEmpty()) Text(h.title, color = if (h.fromGuide) c.accent else c.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    if (h.fromGuide) Text("✓", color = GREEN, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                 } } }
         } })
 }
@@ -119,7 +127,7 @@ fun SportsPane() {
         if (l == null) { Loading(); return }
         if (l.isEmpty()) { Empty(stringResource(R.string.no_matches)); return }
         val groups = remember(l) { val live = l.filter { it.live }; val rest = l.filter { !it.live }.sortedBy { it.ts }; (if (live.isNotEmpty()) listOf("LIVE" to live) else emptyList()) + rest.groupBy { it.league }.toList() }
-        LazyColumn(contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.restoreFocus(), contentPadding = PaddingValues(16.dp, 4.dp, 16.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             groups.forEach { (name, ms) ->
                 item { Row(verticalAlignment = Alignment.CenterVertically) { if (name == "LIVE") { Box(Modifier.size(8.dp).clip(RoundedCornerShape(4.dp)).background(LIVE_RED)); Spacer(Modifier.width(6.dp)) }
                     Text(if (name == "LIVE") stringResource(R.string.live_now).uppercase() else name.uppercase(), color = if (name == "LIVE") LIVE_RED else c.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) } }
@@ -142,7 +150,7 @@ fun MatchRow(onPick: (Match) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         if (show.any { it.live }) { Box(Modifier.size(8.dp).clip(RoundedCornerShape(4.dp)).background(LIVE_RED)); Spacer(Modifier.width(6.dp)) }
         SectionTitle((if (show.any { it.live }) stringResource(R.string.live_now) else stringResource(R.string.matches_today)).uppercase())
-        Spacer(Modifier.weight(1f)); Pill(stringResource(R.string.sports) + " ›", false) { nav.mainTab = 4 }
+        Spacer(Modifier.weight(1f)); Pill(stringResource(R.string.sports) + " " + fwdArrow(), false) { nav.mainTab = 4 }
     }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(show.take(12), key = { it.id }) { m -> MatchCard(m, 140, compact = true) { onPick(it) } } }
 }

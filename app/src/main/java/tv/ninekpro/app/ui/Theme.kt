@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -87,6 +88,10 @@ fun Modifier.tvFocus(accent: Color, radius: Int = 10): Modifier {
         .graphicsLayer { scaleX = scale; scaleY = scale; if (focused) { shadowElevation = 18f; this.shape = shape; clip = false; ambientShadowColor = accent; spotShadowColor = accent } }
         .then(if (focused) Modifier.border(3.dp, Color.White, shape).background(accent.copy(alpha = 0.32f), shape) else Modifier)
 }
+
+/** TV: a list remembers which of its items had focus, so focus comes back to it after a dialog / after leaving and re-entering the list. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+fun Modifier.restoreFocus(): Modifier = this.focusRestorer()
 
 /** Glass card background used everywhere (settings tiles, playlist cards, panes). */
 @Composable

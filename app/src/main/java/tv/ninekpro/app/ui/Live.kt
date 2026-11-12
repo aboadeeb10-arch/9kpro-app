@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
@@ -83,11 +84,14 @@ fun LivePane() {
         val cats = remember(content, pv) { repo.applyOrder("cats:${pl.id}:LIVE", content.categories) { it.id } }.filter { repo.prefs.showHidden || !hidden.contains("cat:" + it.id) }
         val locked = remember(pv, content) { val l = repo.locked().toMutableSet(); if (repo.prefs.parentalOn) content.categories.filter { repo.isAdultName(it.name) }.forEach { l.add("cat:" + it.id) }; if (!repo.prefs.parentalOn) l.clear(); l as Set<String> }
         val counts = remember(content) { content.items.groupingBy { it.categoryId }.eachCount() }
-        val channels = remember(content, catId, pv) {
+        val liveSort = repo.prefs.liveSort
+        // big lists (> 2000 channels) are filtered/sorted on a background thread with a spinner; small ones stay synchronous (no flicker)
+        val channelsOrNull = heavyList(content.items.size > 2000, content, catId, pv, liveSort) {
             val base = when (catId) { ALL -> content.items; FAV -> content.items.filter { favs.contains(it.key) }; LOCK -> content.items.filter { locked.contains("cat:" + it.categoryId) }; else -> content.items.filter { it.categoryId == catId } }
-            val sorted = when (repo.prefs.liveSort) { "az" -> base.sortedBy { it.name.lowercase() }; "number" -> base.sortedBy { it.num }; else -> repo.applyOrder("items:${pl.id}:LIVE:$catId", base) { it.key } }
+            val sorted = when (liveSort) { "az" -> base.sortedBy { it.name.lowercase() }; "number" -> base.sortedBy { it.num }; else -> repo.applyOrder("items:${pl.id}:LIVE:$catId", base) { it.key } }
             sorted.filter { repo.prefs.showHidden || !hidden.contains(it.key) }
         }
+        val channels = channelsOrNull ?: emptyList()
         var nn by remember { mutableStateOf<Pair<tv.ninekpro.app.data.EpgEntry?, tv.ninekpro.app.data.EpgEntry?>>(null to null) }
         LaunchedEffect(selected?.key, ev) { val sel = selected; nn = if (sel == null) null to null else try { repo.nowNextLive(pl, sel) } catch (e: Throwable) { null to null } }
         val tfmt = remember { java.text.SimpleDateFormat(if (repo.prefs.timeFormat == "24") "HH:mm" else "h:mm a", java.util.Locale.getDefault()) }
@@ -97,9 +101,9 @@ fun LivePane() {
             val wide = maxWidth > 700.dp
             androidx.activity.compose.BackHandler(enabled = !wide && showList) { showList = false }
             val catList: @Composable (Modifier) -> Unit = { m ->
-                LazyColumn(m, contentPadding = PaddingValues(vertical = 4.dp)) {
+                LazyColumn(m.restoreFocus(), contentPadding = PaddingValues(vertical = 4.dp)) {
                     item { CatRow(stringResource(R.string.all), content.items.size, catId == ALL) { catId = ALL; showList = true } }
-                    item { CatRow(stringResource(R.string.favorites), favs.count { k -> k.contains(":LIVE:") }, catId == FAV) { catId = FAV; showList = true } }
+                    item { CatRow(stringResource(R.string.favorites), favs.count { k -> k.startsWith(pl.id + ":" + Kind.LIVE.name + ":") }, catId == FAV) { catId = FAV; showList = true } }
                     item { CatRow(stringResource(R.string.lock), locked.count { it.startsWith("cat:") }, catId == LOCK) { if (locked.isEmpty()) return@CatRow; gate = LOCK } }
                     items(cats, key = { it.id }) { cat ->
                         var menu by remember { mutableStateOf(false) }
@@ -111,15 +115,16 @@ fun LivePane() {
             }
             val chList: @Composable (Modifier) -> Unit = { m ->
                 val now = System.currentTimeMillis() / 1000
-                LazyColumn(m, state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
-                    items(channels, key = { it.key }) { ch ->
+                if (channelsOrNull == null) Box(m) { Loading() }
+                else LazyColumn(m.restoreFocus(), state = listState, contentPadding = PaddingValues(vertical = 4.dp)) {
+                    itemsIndexed(channels, key = { _, it -> it.key }) { idx, ch ->
                         var menu by remember { mutableStateOf(false) }
                         val isSel = selected?.key == ch.key
                         val prog = remember(ev, ch.key) { repo.nowNext(pl, ch).first }
                         Row(Modifier.fillMaxWidth().background(if (isSel) c.selected else Color.Transparent).tvFocus(c.accent, 6)
                             .combinedClickable(onClick = { if (wide) { if (isSel) { repo.liveContext = channels; LiveEngine.handoff = true; scope.launch { playItem(repo, nav, pl, ch) } } else selected = ch } else { repo.liveContext = channels; scope.launch { playItem(repo, nav, pl, ch) } } }, onLongClick = { menu = true })
                             .padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (ch.num > 0) ch.num.toString() else "", color = c.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(32.dp))
+                            Text((idx + 1).toString(), color = c.muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(32.dp))
                             Poster(ch.icon, Modifier.size(38.dp, 26.dp), contentScaleFit = true); Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(ch.name, color = if (isSel) c.accent else c.text, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -175,7 +180,7 @@ fun LivePane() {
             } else {
                 if (!showList) catList(Modifier.fillMaxSize())
                 else Column(Modifier.fillMaxSize()) {
-                    Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) { Pill("‹ " + stringResource(R.string.all), false) { showList = false }; Spacer(Modifier.width(8.dp)); Text(cats.firstOrNull { it.id == catId }?.name ?: stringResource(R.string.all), color = c.text, fontWeight = FontWeight.Bold) }
+                    Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) { Pill(backArrow() + " " + stringResource(R.string.all), false) { showList = false }; Spacer(Modifier.width(8.dp)); Text(cats.firstOrNull { it.id == catId }?.name ?: stringResource(R.string.all), color = c.text, fontWeight = FontWeight.Bold) }
                     chList(Modifier.fillMaxSize())
                 }
             }

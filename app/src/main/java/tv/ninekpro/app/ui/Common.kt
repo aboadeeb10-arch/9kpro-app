@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,10 +33,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -69,13 +75,23 @@ fun BigButton(text: String, icon: ImageVector? = null, filled: Boolean = true, m
     }
 }
 
+/** Text field. `keyboardType` picks the phone keyboard (NumberPassword for PIN/code, Password, Search…); `onImeAction` runs on the keyboard's Search/Done/Go key. */
 @Composable
-fun Field(value: String, onChange: (String) -> Unit, label: String, password: Boolean = false, modifier: Modifier = Modifier.fillMaxWidth()) {
+fun Field(value: String, onChange: (String) -> Unit, label: String, password: Boolean = false, modifier: Modifier = Modifier.fillMaxWidth(),
+          keyboardType: KeyboardType = KeyboardType.Text, imeAction: ImeAction = ImeAction.Default, onImeAction: (() -> Unit)? = null) {
     val c = LocalColors.current
     OutlinedTextField(value = value, onValueChange = onChange, label = { Text(label) }, singleLine = true, modifier = modifier,
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
+        keyboardActions = KeyboardActions(onAny = { onImeAction?.invoke() }),
         colors = OutlinedTextFieldDefaults.colors(focusedTextColor = c.text, unfocusedTextColor = c.text, focusedBorderColor = c.accent, unfocusedBorderColor = c.muted, focusedLabelColor = c.accent, unfocusedLabelColor = c.muted, cursorColor = c.accent))
 }
+
+/** Arrow glyphs that point the right way in Arabic / Hebrew (RTL) layouts: forward = "›" in LTR, "‹" in RTL. */
+@Composable
+fun fwdArrow(): String = if (LocalLayoutDirection.current == LayoutDirection.Rtl) "‹" else "›"
+@Composable
+fun backArrow(): String = if (LocalLayoutDirection.current == LayoutDirection.Rtl) "›" else "‹"
 
 /** Poster / logo image. Rounded, thin border, fade-in; on weak devices images are decoded small to keep scrolling smooth. */
 @Composable

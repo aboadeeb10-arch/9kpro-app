@@ -1,12 +1,16 @@
 package tv.ninekpro.app.ui
 
 import android.content.Context
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import tv.ninekpro.app.data.DeviceInfo
 
 /**
  * One ExoPlayer shared by the Live TV preview (small screen) and the full-screen player.
@@ -25,13 +29,26 @@ object LiveEngine {
         player?.let { return it }
         val app = ctx.applicationContext
         val http = DefaultHttpDataSource.Factory().setUserAgent("9KProTV/1.0").setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15000).setReadTimeoutMs(20000)
-        val fastStart = DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 700, 1_500).setPrioritizeTimeOverSizeThresholds(true).build()
+        // Weak boxes (DeviceInfo.lite): smaller buffer so the stream starts and does not starve the RAM.
+        val fastStart = if (DeviceInfo.lite) DefaultLoadControl.Builder().setBufferDurationsMs(10_000, 20_000, 700, 1_500).setPrioritizeTimeOverSizeThresholds(false).build()
+            else DefaultLoadControl.Builder().setBufferDurationsMs(15_000, 50_000, 700, 1_500).setPrioritizeTimeOverSizeThresholds(true).build()
         val p = ExoPlayer.Builder(app).setRenderersFactory(DefaultRenderersFactory(app).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER))
-            .setLoadControl(fastStart).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build().apply {
-                playWhenReady = true
-                trackSelectionParameters = trackSelectionParameters.buildUpon().setPreferredTextLanguage(subLang.ifEmpty { null }).build()
-            }
-        player = p; return p
+            .setLoadControl(fastStart).setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .setAudioAttributes(AudioAttributes.DEFAULT, true).setHandleAudioBecomingNoisy(true).setWakeMode(C.WAKE_MODE_NETWORK)   // phones: pause when headphones unplug / another app takes the sound
+            .build().apply { playWhenReady = true }
+        player = p; applyPrefs(subLang); return p
+    }
+
+    /** Subtitle preference ("" = none) — re-applied on every zap so a "None" picked on one channel does not stick for all later ones. */
+    fun applyPrefs(subLang: String) {
+        val p = player ?: return
+        try { p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setPreferredTextLanguage(subLang.ifEmpty { null }).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, subLang.isEmpty()).build() } catch (e: Throwable) {}
+    }
+
+    /** Load a channel into the shared player (prefs re-applied first). */
+    fun load(k: String, item: MediaItem, subLang: String) {
+        val p = player ?: return
+        key = k; applyPrefs(subLang); p.setMediaItem(item); p.prepare(); p.play()
     }
 
     /** Is this channel already playing (or loading) in the shared player? */

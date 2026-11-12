@@ -18,7 +18,7 @@ class PanelApi(private val prefs: Prefs) {
     class PanelResult(val ok: Boolean, val error: String, val json: JSONObject)
 
     private fun meta(o: JSONObject): JSONObject = o.put("mac", prefs.deviceMac()).put("model", (Build.MANUFACTURER + " " + Build.MODEL).trim())
-        .put("platform", if (DeviceInfo.isTv) "tv" else "phone").put("app_version", BuildConfig.VERSION_NAME)
+        .put("platform", if (DeviceInfo.isTv) "tv" else "phone").put("app_version", BuildConfig.VERSION_NAME).put("img_url", true) // brand logo/splash come as cached URLs instead of base64 (panel 3 Nov 2026)
 
     fun post(op: String, body: JSONObject = JSONObject(), auth: Boolean = true, tokenOverride: String = ""): PanelResult {
         return try {

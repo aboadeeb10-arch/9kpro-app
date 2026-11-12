@@ -20,8 +20,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -44,19 +47,27 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import tv.ninekpro.app.R
 import tv.ninekpro.app.data.Category
@@ -74,7 +85,9 @@ fun kindTitle(k: Kind) = when (k) { Kind.LIVE -> stringResource(R.string.live); 
 
 /** Loads a playlist's content for one kind, with error/retry. */
 @Composable
-fun <T> Loaded(key: Any?, load: suspend () -> T, isEmpty: (T) -> Boolean = { false }, content: @Composable (T) -> Unit) {
+fun <T> Loaded(key0: Any?, load: suspend () -> T, isEmpty: (T) -> Boolean = { false }, content: @Composable (T) -> Unit) {
+    // Refresh / a playlist changed by the panel bumps contentVersion → the screen loads again even though its playlist id is the same
+    val cv by LocalRepo.current.contentVersion.collectAsState(); val key = key0 to cv
     var data by remember(key) { mutableStateOf<T?>(null) }; var err by remember(key) { mutableStateOf("") }; var tick by remember { mutableStateOf(0) }
     var waiting by remember(key) { mutableStateOf(0) }
     LaunchedEffect(key, tick) { err = ""
@@ -89,6 +102,12 @@ fun <T> Loaded(key: Any?, load: suspend () -> T, isEmpty: (T) -> Boolean = { fal
         else -> Loading()
     }
 }
+
+/** Filter/sort of a list. Small lists are computed right away in composition (no flicker); `big` ones run on a background thread and return null (→ show Loading()) until ready. Recomputed when a key changes. */
+@Composable
+fun <T> heavyList(big: Boolean, vararg keys: Any?, compute: () -> List<T>): List<T>? =
+    if (big) produceState<List<T>?>(null, *keys) { value = null; value = withContext(Dispatchers.Default) { compute() } }.value
+    else remember(*keys) { compute() }
 
 // ------------------------------------------------------------ categories
 @OptIn(ExperimentalFoundationApi::class)
@@ -106,16 +125,18 @@ fun CategoriesScreen(kind: Kind) {
             val locked = remember(pv) { repo.locked() }
             var gate by remember { mutableStateOf<Category?>(null) }
             PinGate(gate != null, { gate = null }) { val g = gate; gate = null; if (g != null) nav.push(Screen.Items(kind, g)) }
-            LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(Modifier.restoreFocus(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(cats, key = { it.id }) { cat ->
                     var menu by remember { mutableStateOf(false) }
                     val isLocked = locked.contains("cat:" + cat.id)
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (hidden.contains("cat:" + cat.id)) c.card.copy(alpha = 0.4f) else c.card)
-                        .tvFocus(c.accent, 12).combinedClickable(onClick = { if (isLocked) gate = cat else nav.push(Screen.Items(kind, cat)) }, onLongClick = { menu = true }).padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (isLocked) { Icon(Icons.Default.Lock, null, tint = c.muted, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
-                        Text(cat.name, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text((counts[cat.id] ?: 0).toString(), color = c.muted, fontSize = 12.sp)
-                        Box { IconButton(onClick = { menu = true }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.MoreVert, null, tint = c.muted) }
+                    // TV remote: the ⋮ button is a SIBLING of the clickable area (a button nested inside a clickable row can't be reached)
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (hidden.contains("cat:" + cat.id)) c.card.copy(alpha = 0.4f) else c.card), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).tvFocus(c.accent, 12).combinedClickable(onClick = { if (isLocked) gate = cat else nav.push(Screen.Items(kind, cat)) }, onLongClick = { menu = true }).padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (isLocked) { Icon(Icons.Default.Lock, null, tint = c.muted, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)) }
+                            Text(cat.name, color = c.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text((counts[cat.id] ?: 0).toString(), color = c.muted, fontSize = 12.sp)
+                        }
+                        Box(Modifier.padding(end = 6.dp)) { IconButton(onClick = { menu = true }, modifier = Modifier.size(32.dp).tvFocus(c.accent, 16)) { Icon(Icons.Default.MoreVert, stringResource(R.string.more), tint = c.muted) }
                             OrderMenu(menu, { menu = false }, repo, listId, cats.map { it.id }, cat.id, "cat:" + cat.id, hidden.contains("cat:" + cat.id)) }
                     }
                 }
@@ -134,7 +155,7 @@ fun PinGate(show: Boolean, onDismiss: () -> Unit, onOk: () -> Unit) {
     var v by remember { mutableStateOf("") }; var bad by remember { mutableStateOf(false) }
     androidx.compose.material3.AlertDialog(onDismissRequest = onDismiss, confirmButton = { BigButton(stringResource(R.string.ok)) { if (v == repo.pin) { repo.unlockedUntil = System.currentTimeMillis() + 30 * 60_000L; onOk() } else bad = true } },
         dismissButton = { BigButton(stringResource(R.string.cancel), filled = false) { onDismiss() } }, title = { Text(stringResource(R.string.enter_pin)) },
-        text = { Column { Field(v, { v = it.filter { ch -> ch.isDigit() }.take(6) }, "PIN", password = true); if (bad) Text(stringResource(R.string.wrong_pin), color = Color(0xFFFF6B7A), fontSize = 12.sp) } })
+        text = { Column { Field(v, { v = it.filter { ch -> ch.isDigit() }.take(6) }, "PIN", password = true, keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done, onImeAction = { if (v == repo.pin) { repo.unlockedUntil = System.currentTimeMillis() + 30 * 60_000L; onOk() } else bad = true }); if (bad) Text(stringResource(R.string.wrong_pin), color = Color(0xFFFF6B7A), fontSize = 12.sp) } })
 }
 
 @Composable
@@ -169,44 +190,48 @@ fun ItemsScreen(kind: Kind, category: Category?) {
         Loaded(pl.id + kind.name, { repo.content(pl, kind) }) { content ->
             val listId = "items:${pl.id}:${kind.name}:${category?.id ?: "all"}"
             val hidden = remember(pv) { repo.hidden() }; val show = repo.prefs.showHidden
-            val base = if (category == null) content.items else content.items.filter { it.categoryId == category.id }
-            val sorted = when (sort) { "az" -> base.sortedBy { it.name.lowercase() }; "new" -> base.sortedByDescending { it.added }; "rating" -> base.sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }; else -> repo.applyOrder(listId, base) { it.key } }
-            val items = sorted.filter { show || !hidden.contains(it.key) }
-            ItemGrid(items, kind, pl, listId, hidden, sort == "default")
+            val items = heavyList(content.items.size > 2000, content, category?.id, pv, sort) {
+                val base = if (category == null) content.items else content.items.filter { it.categoryId == category.id }
+                val sorted = when (sort) { "az" -> base.sortedBy { it.name.lowercase() }; "new" -> base.sortedByDescending { it.added }; "rating" -> base.sortedByDescending { it.rating.toDoubleOrNull() ?: 0.0 }; else -> repo.applyOrder(listId, base) { it.key } }
+                sorted.filter { show || !hidden.contains(it.key) }
+            }
+            if (items == null) Loading() else ItemGrid(items, kind, pl, listId, hidden, sort == "default")
         }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ItemGrid(items: List<Item>, kind: Kind, pl: Playlist, listId: String, hidden: Set<String>, canOrder: Boolean) {
+fun ItemGrid(items: List<Item>, kind: Kind, pl: Playlist, listId: String, hidden: Set<String>, canOrder: Boolean, state: LazyGridState = rememberLazyGridState()) {
     val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current
     val scope = rememberCoroutineScope()
     if (items.isEmpty()) { Empty(stringResource(R.string.no_items)); return }
     val orderedKeys = items.map { it.key }
     if (kind == Kind.LIVE) {
         val ev by repo.epgVersion.collectAsState()
-        LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(items, key = { it.key }) { it ->
+        LazyColumn(Modifier.restoreFocus(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            itemsIndexed(items, key = { _, it -> it.key }) { idx, it ->
                 var menu by remember { mutableStateOf(false) }
                 val fav = repo.isFavorite(it.key)
                 val nn = remember(ev, it.key) { repo.nowNext(pl, it) }
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (hidden.contains(it.key)) c.card.copy(alpha = 0.4f) else c.card)
-                    .tvFocus(c.accent, 10).combinedClickable(onClick = { repo.liveContext = items; scope.launch { playItem(repo, nav, pl, it) } }, onLongClick = { menu = true }).padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Poster(it.icon, Modifier.size(52.dp, 40.dp), contentScaleFit = true); Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text((if (it.num > 0) it.num.toString() + "  " else "") + it.name + (if (it.archive) "  ⏪" else ""), color = c.text, fontSize = 14.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        nn.first?.let { e -> Text(e.title + (nn.second?.let { n -> "  ·  " + n.title } ?: ""), color = c.muted, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                // TV remote: ♥ and ⋮ are SIBLINGS of the clickable area (buttons nested inside a clickable row can't be reached)
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (hidden.contains(it.key)) c.card.copy(alpha = 0.4f) else c.card), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).tvFocus(c.accent, 10).combinedClickable(onClick = { repo.liveContext = items; scope.launch { playItem(repo, nav, pl, it) } }, onLongClick = { menu = true }).padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Poster(it.icon, Modifier.size(52.dp, 40.dp), contentScaleFit = true); Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(((idx + 1).toString() + "  ") + it.name + (if (it.archive) "  ⏪" else ""), color = c.text, fontSize = 14.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            nn.first?.let { e -> Text(e.title + (nn.second?.let { n -> "  ·  " + n.title } ?: ""), color = c.muted, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        }
                     }
                     IconButton(onClick = { repo.toggleFavorite(it.key) }, modifier = Modifier.size(32.dp).tvFocus(c.accent, 16)) { Icon(if (fav) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null, tint = if (fav) Color(0xFFFF6B7A) else c.muted, modifier = Modifier.size(18.dp)) }
-                    Box { IconButton(onClick = { menu = true }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.MoreVert, null, tint = c.muted) }
+                    Box(Modifier.padding(end = 4.dp)) { IconButton(onClick = { menu = true }, modifier = Modifier.size(32.dp).tvFocus(c.accent, 16)) { Icon(Icons.Default.MoreVert, stringResource(R.string.more), tint = c.muted) }
                         if (canOrder) OrderMenu(menu, { menu = false }, repo, listId, orderedKeys, it.key, it.key, hidden.contains(it.key)) }
                 }
             }
         }
     } else {
         val cols = (if (tv.ninekpro.app.data.DeviceInfo.isTv || repo.prefs.deviceType == "tv") 6 else 5) + when (repo.prefs.layoutSize) { "large" -> -1; "compact" -> 2; else -> 0 }
-        LazyVerticalGrid(columns = GridCells.Fixed(cols), contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyVerticalGrid(columns = GridCells.Fixed(cols), state = state, modifier = Modifier.restoreFocus(), contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(items.size, key = { items[it].key }) { i ->
                 val it = items[i]; var menu by remember { mutableStateOf(false) }
                 Column(Modifier.clip(RoundedCornerShape(8.dp)).tvFocus(c.accent, 8).combinedClickable(onClick = { if (kind == Kind.SERIES) nav.push(Screen.Series(it)) else nav.push(Screen.Movie(it)) }, onLongClick = { menu = true })) {
@@ -297,8 +322,11 @@ fun SeriesScreen(item: Item) {
                         if (people.isNotEmpty()) { Gap(10); SectionTitle(stringResource(R.string.cast).uppercase()); CastRow(people) }
                         Gap(8)
                         val last = repo.resumeList().firstOrNull { r -> r.extra.contains("\"series\":\"" + item.id + "\"") }
-                        if (last != null) BigButton(stringResource(R.string.resume), Icons.Default.PlayArrow) { resumePlay(repo, nav, last) }
-                        else info.seasons.values.firstOrNull()?.firstOrNull()?.let { first -> BigButton(stringResource(R.string.play), Icons.Default.PlayArrow) { scope.launch { playEpisode(repo, nav, pl, info, first, item.name) } } }
+                        // TV: Play / Resume is highlighted as soon as the series page opens — one OK press starts it
+                        val playFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+                        LaunchedEffect(Unit) { delay(120); try { playFocus.requestFocus() } catch (e: Exception) {} }
+                        if (last != null) BigButton(stringResource(R.string.resume), Icons.Default.PlayArrow, modifier = Modifier.focusRequester(playFocus)) { resumePlay(repo, nav, last) }
+                        else info.seasons.values.firstOrNull()?.firstOrNull()?.let { first -> BigButton(stringResource(R.string.play), Icons.Default.PlayArrow, modifier = Modifier.focusRequester(playFocus)) { scope.launch { playEpisode(repo, nav, pl, info, first, item.name) } } }
                     }
                 }
                 if (info.seasons.size > 1) LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { items(info.seasons.keys.toList()) { s -> Pill(stringResource(R.string.season, s), s == season) { season = s } } }
@@ -308,11 +336,14 @@ fun SeriesScreen(item: Item) {
                     Pill(stringResource(R.string.download_season), false) { scope.launch { eps.forEach { ep -> val u = repo.episodeUrl(pl, ep); tv.ninekpro.app.data.Downloads.enqueue(nav, repo, u, item.name + " S" + ep.season + "E" + ep.num, ep.ext) } } } }
                 eps.forEach { ep ->
                     val r = repo.resumeOf(ep.key)
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clip(RoundedCornerShape(10.dp)).background(c.card).tvFocus(c.accent, 10).clickable { scope.launch { playEpisode(repo, nav, pl, info, ep, item.name) } }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box { Poster(ep.icon.ifEmpty { item.icon }, Modifier.size(96.dp, 56.dp)); if (r != null && r.durationMs > 0) Box(Modifier.align(Alignment.BottomStart).width((96 * (r.positionMs.toFloat() / r.durationMs).coerceIn(0.02f, 1f)).dp).height(3.dp).background(c.accent)) }
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) { Text("E" + ep.num + "  " + ep.title, color = c.text, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis); if (ep.durationSecs > 0) Text(fmtTime(ep.durationSecs * 1000L), color = c.muted, fontSize = 11.sp) }
-                        IconButton(onClick = { scope.launch { val u = repo.episodeUrl(pl, ep); tv.ninekpro.app.data.Downloads.enqueue(nav, repo, u, item.name + " S" + ep.season + "E" + ep.num, ep.ext) } }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Download, null, tint = c.muted, modifier = Modifier.size(18.dp)) }
+                    // TV remote: the Download button sits NEXT TO the clickable area, not inside it
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clip(RoundedCornerShape(10.dp)).background(c.card), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).tvFocus(c.accent, 10).clickable { scope.launch { playEpisode(repo, nav, pl, info, ep, item.name) } }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box { Poster(ep.icon.ifEmpty { item.icon }, Modifier.size(96.dp, 56.dp)); if (r != null && r.durationMs > 0) Box(Modifier.align(Alignment.BottomStart).width((96 * (r.positionMs.toFloat() / r.durationMs).coerceIn(0.02f, 1f)).dp).height(3.dp).background(c.accent)) }
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) { Text("E" + ep.num + "  " + ep.title, color = c.text, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis); if (ep.durationSecs > 0) Text(fmtTime(ep.durationSecs * 1000L), color = c.muted, fontSize = 11.sp) }
+                        }
+                        IconButton(onClick = { scope.launch { val u = repo.episodeUrl(pl, ep); tv.ninekpro.app.data.Downloads.enqueue(nav, repo, u, item.name + " S" + ep.season + "E" + ep.num, ep.ext) } }, modifier = Modifier.padding(end = 4.dp).size(36.dp).tvFocus(c.accent, 18)) { Icon(Icons.Default.Download, stringResource(R.string.download), tint = c.muted, modifier = Modifier.size(18.dp)) }
                     }
                 }
                 Gap(24)
@@ -323,6 +354,9 @@ fun SeriesScreen(item: Item) {
 }
 
 // ------------------------------------------------------------ search / favorites / continue
+private const val RECENT_KEY = "recentSearches"; private const val RECENT_MAX = 8
+
+/** Search across live / movies / series. Typing is debounced 250 ms and the search runs off the main thread; the last 8 queries are kept as "Recent searches". */
 @Composable
 fun SearchScreen(initial: String) {
     val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current
@@ -332,34 +366,66 @@ fun SearchScreen(initial: String) {
     val scroll = rememberScrollState(repo.searchScroll)
     DisposableEffect(Unit) { onDispose { repo.searchQ = q; repo.searchScroll = scroll.value } }
     LaunchedEffect(pl.id) { for (k in Kind.values()) try { repo.content(pl, k) } catch (e: Throwable) {} }
+    // recent searches live in the app's SharedPreferences ("ninekpro"), newest first
+    val sp = LocalContext.current.getSharedPreferences("ninekpro", android.content.Context.MODE_PRIVATE)
+    var recent by remember { mutableStateOf((sp.getString(RECENT_KEY, "") ?: "").split("\n").filter { it.isNotBlank() }) }
+    val saveRecent: (String) -> Unit = { s -> val t = s.trim(); if (t.length >= 2) { val l = (listOf(t) + recent.filter { it != t }).take(RECENT_MAX); recent = l; sp.edit().putString(RECENT_KEY, l.joinToString("\n")).apply() } }
+    var res by remember { mutableStateOf<List<Item>>(emptyList()) }; var busy by remember { mutableStateOf(false) }
+    LaunchedEffect(q, pl.id) {
+        val s = q.trim()
+        if (s.length < 2) { res = emptyList(); busy = false; return@LaunchedEffect }
+        busy = true; delay(250)
+        res = withContext(Dispatchers.Default) { try { repo.searchCached(pl, s) } catch (e: Throwable) { emptyList() } }
+        busy = false
+    }
     Column(Modifier.fillMaxSize()) {
         TopBar(stringResource(R.string.search))
-        Field(q, { q = it; repo.searchQ = it }, stringResource(R.string.search), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp))
-        val res = remember(q) { repo.searchCached(pl, q) }
+        Field(q, { q = it; repo.searchQ = it }, stringResource(R.string.search), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), keyboardType = KeyboardType.Text, imeAction = ImeAction.Search, onImeAction = { saveRecent(q) })
         Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+            if (q.trim().length < 2) {
+                Text(stringResource(R.string.type_two_letters), color = c.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                if (recent.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { SectionTitle(stringResource(R.string.recent_searches).uppercase()); Spacer(Modifier.weight(1f))
+                        Pill(stringResource(R.string.clear_recent), false) { recent = emptyList(); sp.edit().remove(RECENT_KEY).apply() }; Spacer(Modifier.width(12.dp)) }
+                    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(recent, key = { "rs:" + it }) { s -> Pill(s, false) { q = s; repo.searchQ = s } } }
+                }
+            } else if (busy && res.isEmpty()) Text(stringResource(R.string.searching), color = c.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
             Kind.values().forEach { k ->
                 val list = res.filter { it.kind == k }.take(40)
                 if (list.isNotEmpty()) { SectionTitle(kindTitle(k).uppercase() + "  ·  " + list.size)
-                    LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) { items(list, key = { it.key }) { it -> PosterCard(it, if (k == Kind.LIVE) 120 else 110) { when (k) { Kind.LIVE -> { repo.liveContext = list; scope.launch { playItem(repo, nav, pl, it) } }; Kind.MOVIE -> nav.push(Screen.Movie(it)); Kind.SERIES -> nav.push(Screen.Series(it)) } } } } }
+                    LazyRow(Modifier.restoreFocus(), contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) { items(list, key = { k.name + ":" + it.key }) { it -> PosterCard(it, if (k == Kind.LIVE) 120 else 110) { saveRecent(q); when (k) { Kind.LIVE -> { repo.liveContext = list; scope.launch { playItem(repo, nav, pl, it) } }; Kind.MOVIE -> nav.push(Screen.Movie(it)); Kind.SERIES -> nav.push(Screen.Series(it)) } } } } }
             }
-            if (q.length >= 2 && res.isEmpty()) Empty(stringResource(R.string.no_items))
+            if (q.trim().length >= 2 && !busy && res.isEmpty()) Empty(stringResource(R.string.no_items))
             Gap(20)
         }
     }
 }
 
+/** Favourites: one scrolling column — a title + a poster row per kind (live favourites play with the row as their channel list). */
 @Composable
 fun FavoritesScreen() {
-    val repo = LocalRepo.current; val c = LocalColors.current; val pv by repo.profileVersion.collectAsState()
+    val repo = LocalRepo.current; val nav = LocalNav.current; val pv by repo.profileVersion.collectAsState()
     val pl = repo.activePlaylist ?: return
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize()) {
         TopBar(stringResource(R.string.favorites))
         Loaded(pl.id + "fav", { Kind.values().associateWith { k -> repo.content(pl, k) } }) { all ->
-            val favs = remember(pv) { repo.favorites() }
-            val items = favs.mapNotNull { key -> all.values.firstNotNullOfOrNull { c2 -> c2.items.firstOrNull { it.key == key } } }
+            val favs = remember(pv) { repo.favorites().distinct() }
+            val byKey = remember(all) { HashMap<String, Item>().also { m -> all.values.forEach { c2 -> c2.items.forEach { m[it.key] = it } } } }
+            val items = remember(favs, byKey) { favs.mapNotNull { byKey[it] } }
             if (items.isEmpty()) Empty(stringResource(R.string.no_items))
-            else Column(Modifier.verticalScroll(rememberScrollState())) {
-                Kind.values().forEach { k -> val l = items.filter { it.kind == k }; if (l.isNotEmpty()) { SectionTitle(kindTitle(k).uppercase()); Box(Modifier.height(if (k == Kind.LIVE) (l.size * 56 + 24).dp else ((l.size + 2) / 3 * 200 + 24).dp)) { ItemGrid(l, k, pl, "fav:" + k.name, emptySet(), true) } } }
+            else LazyColumn(Modifier.fillMaxSize().restoreFocus(), contentPadding = PaddingValues(vertical = 6.dp)) {
+                Kind.values().forEach { k ->
+                    val l = items.filter { it.kind == k }
+                    if (l.isNotEmpty()) {
+                        item(key = "title:" + k.name) { SectionTitle(kindTitle(k).uppercase() + "  ·  " + l.size) }
+                        item(key = "row:" + k.name) {
+                            LazyRow(Modifier.restoreFocus(), contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                items(l, key = { k.name + ":" + it.key }) { it -> PosterCard(it, if (k == Kind.LIVE) 120 else 110) { when (k) { Kind.LIVE -> { repo.liveContext = l; scope.launch { playItem(repo, nav, pl, it) } }; Kind.MOVIE -> nav.push(Screen.Movie(it)); Kind.SERIES -> nav.push(Screen.Series(it)) } } }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -372,12 +438,15 @@ fun ContinueScreen() {
     Column(Modifier.fillMaxSize()) {
         TopBar(stringResource(R.string.continue_watching))
         if (list.isEmpty()) Empty(stringResource(R.string.no_items))
-        LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyColumn(Modifier.restoreFocus(), contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(list, key = { it.key }) { r ->
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.card).tvFocus(c.accent, 10).clickable { resumePlay(repo, nav, r) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Poster(r.image, Modifier.size(72.dp, 50.dp)); Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) { Text(r.title, color = c.text, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis); if (r.durationMs > 0) Text(fmtTime(r.positionMs) + " / " + fmtTime(r.durationMs), color = c.muted, fontSize = 11.sp) }
-                    IconButton(onClick = { repo.removeResume(r.key) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Close, null, tint = c.muted, modifier = Modifier.size(16.dp)) }
+                // TV remote: ✕ is a sibling of the clickable area, not nested inside it
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(c.card), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).tvFocus(c.accent, 10).clickable { resumePlay(repo, nav, r) }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Poster(r.image, Modifier.size(72.dp, 50.dp)); Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) { Text(r.title, color = c.text, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis); if (r.durationMs > 0) Text(fmtTime(r.positionMs) + " / " + fmtTime(r.durationMs), color = c.muted, fontSize = 11.sp) }
+                    }
+                    IconButton(onClick = { repo.removeResume(r.key) }, modifier = Modifier.padding(end = 4.dp).size(36.dp).tvFocus(c.accent, 18)) { Icon(Icons.Default.Close, stringResource(R.string.remove), tint = c.muted, modifier = Modifier.size(16.dp)) }
                 }
             }
         }

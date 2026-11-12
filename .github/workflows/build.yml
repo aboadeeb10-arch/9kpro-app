@@ -2,7 +2,8 @@ name: Build APK
 on:
   push:
     branches: [ main ]
-    paths-ignore: [ 'desktop/**', '.github/workflows/desktop.yml' ]
+    # Only app-related changes rebuild (doc-only pushes and desktop/ changes do not spend 12 minutes of Actions).
+    paths: [ 'app/**', 'gradle/**', '*.gradle.kts', 'gradle.properties', '.github/workflows/build.yml' ]
   workflow_dispatch:
 permissions:
   contents: write
@@ -13,7 +14,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17' }
+      # Gradle + build cache between runs (org.gradle.caching=true in gradle.properties).
       - uses: gradle/actions/setup-gradle@v4
+        with: { cache-read-only: false }
       # One permanent signing key (secrets KEYSTORE_B64 + KEYSTORE_PASSWORD): updates install over the old version and the device MAC never changes.
       - name: Signing key
         if: ${{ env.KEYSTORE_B64 != '' }}
@@ -23,24 +26,38 @@ jobs:
           echo "KEYSTORE_PATH=$RUNNER_TEMP/9kpro.jks" >> "$GITHUB_ENV"; echo "KEY_ALIAS=ninekpro" >> "$GITHUB_ENV"
           echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"; echo "KEY_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
           echo "Release key: permanent"
+      # A release signed with the debug key would not install over the customers' app — stop here instead of publishing it.
+      - name: Signing key must exist
+        if: ${{ env.KEYSTORE_PATH == '' || env.KEYSTORE_PASSWORD == '' }}
+        run: |
+          echo "::error::Repo secrets KEYSTORE_B64 / KEYSTORE_PASSWORD are missing or empty — refusing to build an unsigned release"
+          exit 1
       - name: Build
-        run: chmod +x gradlew && ./gradlew assembleSideloadDebug assembleSideloadRelease --no-daemon --stacktrace
-      # Google Play bundle (.aab) — only meaningful when signed with the permanent key.
-      - name: Build Play bundle
-        if: ${{ env.KEYSTORE_PATH != '' }}
-        run: ./gradlew bundlePlayRelease --no-daemon
+        run: chmod +x gradlew && ./gradlew assembleSideloadRelease bundlePlayRelease --stacktrace
       - name: 16 KB page-size check (Play requirement for API 35+)
         run: |
-          mkdir -p chk && cd chk && unzip -oq ../app/build/outputs/apk/sideload/release/app-sideload-release.apk 'lib/arm64-v8a/*' || true
-          BAD=0; for f in lib/arm64-v8a/*.so; do [ -f "$f" ] || continue; A=$(readelf -lW "$f" | awk '/LOAD/{print $NF}' | sort -u | tr '\n' ' '); echo "$f: $A"; case "$A" in *0x1000*) BAD=1;; esac; done
+          mkdir -p chk && cd chk
+          unzip -oq ../app/build/outputs/apk/sideload/release/app-sideload-release.apk 'lib/arm64-v8a/*' || { echo "::error::could not unzip lib/arm64-v8a from the APK"; exit 1; }
+          N=0; BAD=0
+          for f in lib/arm64-v8a/*.so; do
+            [ -f "$f" ] || continue
+            N=$((N+1))
+            # LOAD segment alignments, wrapped in spaces so " 0x1000 " (4 KB) never matches inside " 0x10000 " (64 KB).
+            A=" $(readelf -lW "$f" | awk '/LOAD/{print $NF}' | sort -u | tr '\n' ' ')"
+            echo "$f:$A"
+            case "$A" in *" 0x1000 "*) BAD=1;; esac
+          done
+          if [ "$N" = 0 ]; then echo "::error::no arm64-v8a .so found in the APK — the 16 KB check could not run"; exit 1; fi
           if [ "$BAD" = 1 ]; then echo "::error::a native library is only 4 KB aligned — Google Play will reject it"; exit 1; fi
+          echo "$N native libraries checked, all 16 KB aligned"
       - name: Rename
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/sideload/debug/app-sideload-debug.apk out/9KProTV-debug.apk
           cp app/build/outputs/apk/sideload/release/app-sideload-release.apk out/9KProTV.apk
-          cp app/build/outputs/mapping/playRelease/mapping.txt out/mapping.txt 2>/dev/null || cp app/build/outputs/mapping/sideloadRelease/mapping.txt out/mapping.txt 2>/dev/null || true
-          cp app/build/outputs/bundle/playRelease/app-play-release.aab out/9KProTV-play.aab 2>/dev/null || true
+          cp app/build/outputs/bundle/playRelease/app-play-release.aab out/9KProTV-play.aab
+          # Two R8 mapping files: mapping.txt = Play bundle (upload to Play Console), mapping-sideload.txt = /app APK (retrace panel crash logs).
+          cp app/build/outputs/mapping/playRelease/mapping.txt out/mapping.txt
+          cp app/build/outputs/mapping/sideloadRelease/mapping.txt out/mapping-sideload.txt
           ls -la out
       # Optional copy for the Actions page only (release + panel site are the real outputs). Kept 1 day; a full artifact quota must not fail the build.
       - uses: actions/upload-artifact@v4
@@ -55,6 +72,7 @@ jobs:
             out/9KProTV.apk
             out/9KProTV-play.aab
             out/mapping.txt
+            out/mapping-sideload.txt
           prerelease: true
       # Public download without a GitHub login: the APK is committed into the panel site (Vercel) → https://9kpro-panel.vercel.app/9KProTV.apk
       # Needs a repo secret PANEL_REPO_TOKEN (fine-grained PAT with "Contents: read & write" on aboadeeb10-arch/9kpro-panel).
@@ -70,7 +88,8 @@ jobs:
           for i in 1 2 3 4; do
             git fetch origin main && git reset --hard origin/main
             OLD=$(cat 9KProTV.version 2>/dev/null | cut -d' ' -f1); OLD=${OLD:-0}
-            if [ "$VC" -lt "$OLD" ]; then echo "panel already has versionCode $OLD (ours $VC) — not overwriting"; exit 0; fi
+            # Same or older versionCode is never republished: customers would not update anyway, and every APK push adds ~50 MB to the panel repo's history.
+            if [ "$VC" -le "$OLD" ]; then echo "panel already has versionCode $OLD (ours $VC) — not overwriting; bump versionCode in app/build.gradle.kts to publish"; exit 0; fi
             cp ../out/9KProTV.apk 9KProTV.apk && echo "$VC $VN ${{ github.sha }}" > 9KProTV.version && git add 9KProTV.apk 9KProTV.version
             git commit -m "9K Pro TV APK v$VN ${{ github.sha }}" || { echo "no change"; exit 0; }
             git push && exit 0

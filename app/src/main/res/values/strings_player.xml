@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Player error screen (plain words for the customer; the raw code stays in small text for support). -->
+<resources>
+    <string name="err_line">Your line is expired or used on another device</string>
+    <string name="err_not_found">This channel is not available on this server — try Change server</string>
+    <string name="err_connect">Server busy or offline — try again, Change server or Crash Fix</string>
+    <string name="err_generic">This stream could not be played</string>
+    <string name="err_trying">Trying another server…</string>
+    <string name="err_back">Back</string>
+    <string name="err_back_to_exo">Try ExoPlayer</string>
+</resources>

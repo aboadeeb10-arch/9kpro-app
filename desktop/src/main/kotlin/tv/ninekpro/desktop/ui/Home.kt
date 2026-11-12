@@ -101,6 +101,12 @@ fun HomePane(goTab: (Int) -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(T("welcome_to", brand.name), color = c.text, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
                 if (acc != null && acc.days != null && acc.days <= brand.renewDays && acc.days >= 0) Text(T("expires_in", acc.days), color = Color(0xFFFFB347), fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+            // weather widget (city from the IP, via the panel)
+            val wx by repo.weather.collectAsState(); LaunchedEffect(Unit) { repo.loadWeather() }
+            val w = wx
+            if (w != null) { Row(Modifier.padding(end = 18.dp).glass(c, 12).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(weatherIcon(w.code), null, tint = c.accent, modifier = Modifier.size(30.dp)); Spacer(Modifier.width(8.dp))
+                Column { Text(w.temp.toString() + "°", color = c.text, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold); Text(w.city.ifEmpty { T("weather") }, color = c.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 120.dp)) } } }
             Column(horizontalAlignment = Alignment.End) { Text(clock, color = c.text, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold); Text(dateText(), color = c.muted, fontSize = 12.sp) }
         }
         if (!serverOk) Text(T("server_down"), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp).fillMaxWidth().background(Color(0xFFC62828), RoundedCornerShape(8.dp)).padding(10.dp))
@@ -126,7 +132,22 @@ fun HomePane(goTab: (Int) -> Unit) {
             SmallBtn(Icons.Default.GridView, T("guide"), Modifier.weight(1f)) { nav.push(Screen.Guide) }
             SmallBtn(Icons.AutoMirrored.Filled.PlaylistPlay, T("playlists"), Modifier.weight(1f)) { nav.push(Screen.Playlists) }
             SmallBtn(Icons.Default.SwapHoriz, T("change_server"), Modifier.weight(1f)) { nav.push(Screen.Playlists) }
+            SmallBtn(Icons.Default.Dashboard, T("multi_screen"), Modifier.weight(1f)) { nav.push(Screen.Multi) }
+            SmallBtn(Icons.Default.Download, T("downloads"), Modifier.weight(1f)) { nav.push(Screen.Downloads) }
             if (crashAvail || repo.crashFixActive()) SmallBtn(Icons.Default.Healing, T("crash_fix"), Modifier.weight(1f), accent = true) { crashAsk = true }
+        }
+        // today's matches strip (when the football add-on is on in the panel)
+        if (brand.footballOn) {
+            var ms by remember { mutableStateOf<List<tv.ninekpro.desktop.data.Match>>(emptyList()) }
+            LaunchedEffect(Unit) { while (true) { try { ms = repo.matches() } catch (e: Throwable) {}; delay(5 * 60_000L) } }
+            val show = ms.filter { !it.finished }.sortedWith(compareBy({ !it.live }, { it.ts })).take(8)
+            if (show.isNotEmpty()) { Row(verticalAlignment = Alignment.CenterVertically) { SectionTitle(T("matches_today")); Spacer(Modifier.weight(1f)); Text(T("see_all"), color = c.accent, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { goTab(4) }.padding(6.dp)) }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(show, key = { it.id }) { m ->
+                    Row(Modifier.width(260.dp).glass(c, 10, selected = m.live).hoverGlow(c.accent, 10, 1.02f).clickable { goTab(4) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AsyncImage(m.homeLogo, Modifier.size(24.dp), contentScale = ContentScale.Fit); Spacer(Modifier.width(6.dp))
+                        Column(Modifier.weight(1f)) { Text(m.home + " – " + m.away, color = c.text, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(if (m.live) m.min.toString() + "'  " + T("live_now") else m.league, color = if (m.live) Color(0xFF6BFF8E) else c.muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        Text(if (m.upcoming) hm(m.ts, repo.prefs.timeFormat == "24") else "${m.hg.coerceAtLeast(0)} – ${m.ag.coerceAtLeast(0)}", color = c.text, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        Spacer(Modifier.width(6.dp)); AsyncImage(m.awayLogo, Modifier.size(24.dp), contentScale = ContentScale.Fit) } } } }
         }
         // continue watching
         val resume = repo.resumeList()
@@ -160,6 +181,17 @@ suspend fun openResume(repo: tv.ninekpro.desktop.data.Repo, nav: Nav, r: tv.nine
     val pl = repo.activePlaylist ?: return
     if (r.kind == "MOVIE") { val it = repo.cachedContent(pl, Kind.MOVIE)?.items?.firstOrNull { x -> x.key == r.key } ?: return; nav.push(Screen.Movie(it)) }
     else { val sid = r.key.substringAfter("EP:").substringBefore(':'); val ser = repo.cachedContent(pl, Kind.SERIES)?.items?.firstOrNull { x -> r.extra.isNotEmpty() && r.title.startsWith(x.name) } ; if (ser != null) nav.push(Screen.Series(ser)) }
+}
+
+/** Open-Meteo weather code → icon. */
+fun weatherIcon(code: Int): ImageVector = when {
+    code == 0 -> Icons.Default.WbSunny
+    code in 1..3 -> Icons.Default.WbCloudy
+    code in 45..48 -> Icons.Default.Cloud
+    code in 51..67 || code in 80..82 -> Icons.Default.Umbrella
+    code in 71..77 || code in 85..86 -> Icons.Default.AcUnit
+    code >= 95 -> Icons.Default.FlashOn
+    else -> Icons.Default.Cloud
 }
 
 @Composable

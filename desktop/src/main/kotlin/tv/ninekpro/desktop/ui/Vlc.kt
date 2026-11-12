@@ -24,11 +24,18 @@ import java.nio.ByteBuffer
 
 /** libVLC bundled next to the app (resources/vlc). One player for the whole app: the Live preview and the full screen show the same frames, so going big never reloads. */
 object Vlc {
-    var ready = false; private set
-    var error = ""; private set
+    @Volatile var ready = false; private set
+    @Volatile var error = ""; private set
     private var factory: MediaPlayerFactory? = null
+    private val latch = java.util.concurrent.CountDownLatch(1)
+    /** Playback options read at play time (Settings → Picture). */
+    @Volatile var hwDecode = "auto"; @Volatile var deinterlace = "off"; @Volatile var netCache = 1500
 
-    fun init() {
+    /** Loads libVLC on a background thread so the window appears at once; players wait for it (`await`). */
+    fun initAsync() { Thread({ try { init() } finally { latch.countDown() } }, "vlc-init").apply { isDaemon = true }.start() }
+    fun await(): Boolean { try { latch.await(15, java.util.concurrent.TimeUnit.SECONDS) } catch (e: Throwable) {}; return ready }
+
+    @Synchronized fun init() {
         if (ready) return
         try {
             val res = System.getProperty("compose.application.resources.dir")
@@ -69,9 +76,13 @@ class VlcPlayer {
     private var bw = 0; private var bh = 0
     private var lastFrameAt = 0L
 
+    /** Called on every VLC error with (title, url) — Repo turns it into a heartbeat error for the Live monitor. */
+    var onError: ((String) -> Unit)? = null
+    var title: String = ""
+
     private fun ensure(): EmbeddedMediaPlayer? {
         player?.let { return it }
-        if (!Vlc.ready) return null
+        if (!Vlc.ready && !Vlc.await()) return null
         val p = Vlc.newPlayer()
         val fmtCb = object : BufferFormatCallback {
             override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
@@ -98,7 +109,7 @@ class VlcPlayer {
             override fun paused(mp: MediaPlayer) { playing = false }
             override fun stopped(mp: MediaPlayer) { playing = false }
             override fun finished(mp: MediaPlayer) { playing = false; ended = true }
-            override fun error(mp: MediaPlayer) { playing = false; error = true }
+            override fun error(mp: MediaPlayer) { playing = false; error = true; try { onError?.invoke(url) } catch (e: Throwable) {} }
             override fun buffering(mp: MediaPlayer, newCache: Float) { buffering = if (newCache >= 100f) 0f else newCache }
             override fun timeChanged(mp: MediaPlayer, newTime: Long) { time = newTime }
             override fun lengthChanged(mp: MediaPlayer, newLength: Long) { length = newLength }
@@ -115,8 +126,17 @@ class VlcPlayer {
         if (startMs > 0) opts.add(":start-time=" + (startMs / 1000))
         if (subtitle.isNotEmpty()) opts.add(":sub-file=$subtitle")
         opts.add(":http-user-agent=9KProTV/1.0")
+        // Settings → Picture: hardware decoding off for laptops whose GPU driver breaks, longer buffer for weak Wi-Fi, deinterlace for 1080i sport channels
+        if (Vlc.hwDecode == "off") opts.add(":avcodec-hw=none")
+        if (Vlc.netCache != 1500) { opts.add(":network-caching=" + Vlc.netCache); opts.add(":live-caching=" + Vlc.netCache) }
+        when (Vlc.deinterlace) { "auto" -> opts.add(":deinterlace=-1"); "yadif" -> { opts.add(":deinterlace=1"); opts.add(":deinterlace-mode=yadif") } }
         p.media().play(u, *opts.toTypedArray())
     }
+    /** Replay the current stream from the current position (after a picture setting changed). */
+    fun restart() { val u = url; if (u.isEmpty()) return; val t = if (length > 0) time else 0L; url = ""; play(u, t) }
+    fun mute(b: Boolean) { muted = b; try { player?.audio()?.isMute = b } catch (e: Throwable) {} }
+    /** "Fill screen": crop to the window's 16:9 instead of letterboxing; "" = off. */
+    fun setCrop(geometry: String) { try { player?.video()?.setCropGeometry(geometry.ifEmpty { null }) } catch (e: Throwable) {} }
     /** Set by the Live pane right before opening full screen so the pane's dispose does not stop the stream. */
     @Volatile var handoff = false
     fun stop() { url = ""; playing = false; buffering = 0f; error = false; frame = null; try { player?.controls()?.stop() } catch (e: Throwable) {} }

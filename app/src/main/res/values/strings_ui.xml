@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- UI strings added with the Nov 2026 screen fixes. Every key also lives in values-ar and values-iw. -->
+    <string name="see_all">See all</string>
+    <string name="type_two_letters">Type at least 2 letters</string>
+    <string name="recent_searches">Recent searches</string>
+    <string name="clear_recent">Clear</string>
+    <string name="searching">Searching…</string>
+    <string name="update_available">Version %1$s is available</string>
+    <string name="update">Update</string>
+    <!-- in-app update (sideload flavour, data/Updater.kt) -->
+    <string name="update_downloading">Downloading update… %1$d%%</string>
+    <string name="update_installing">Installing…</string>
+    <string name="update_failed">Download failed — tap to retry</string>
+    <string name="update_ready">Update downloaded — tap to install</string>
+    <string name="update_allow">Allow installing updates from 9K Pro TV, then press Update again</string>
+    <string name="update_browser">Open in browser</string>
+    <string name="update_app">App update</string>
+    <string name="update_to">Update to %1$s</string>
+    <string name="update_none">You have the latest version</string>
+    <string name="remind_me">Remind me</string>
+    <string name="remove_reminder">Remove reminder</string>
+</resources>

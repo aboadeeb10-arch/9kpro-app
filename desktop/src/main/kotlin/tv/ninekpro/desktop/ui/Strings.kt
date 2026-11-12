@@ -250,6 +250,8 @@ object Strings {
     "waiting_line" to "This computer is registered. Ask your seller to add a playlist to this Device ID — it will appear here by itself.",
     "copy" to "Copy",
     "copied" to "Copied",
+    "refresh_device" to "Refresh",
+    "no_playlist_yet" to "No playlist for this device yet — ask your seller.",
     "mac_id_hint" to "Send this Device ID to your seller"
 )
     val AR = mapOf(
@@ -497,6 +499,8 @@ object Strings {
     "waiting_line" to "تم تسجيل هذا الكمبيوتر. اطلب من البائع إضافة قائمة لهذا المعرّف وستظهر هنا تلقائياً.",
     "copy" to "نسخ",
     "copied" to "تم النسخ",
+    "refresh_device" to "تحديث",
+    "no_playlist_yet" to "لا يوجد اشتراك لهذا الجهاز بعد — تواصل مع البائع.",
     "mac_id_hint" to "أرسل معرّف الجهاز هذا للبائع"
 )
     val HE = mapOf(
@@ -744,6 +748,8 @@ object Strings {
     "waiting_line" to "המחשב נרשם. בקש מהמוכר להוסיף רשימה למזהה הזה והיא תופיע כאן לבד.",
     "copy" to "העתק",
     "copied" to "הועתק",
+    "refresh_device" to "רענון",
+    "no_playlist_yet" to "עדיין אין רשימה למכשיר הזה — פנה למוכר.",
     "mac_id_hint" to "שלח את מזהה המכשיר למוכר"
 )
 
@@ -753,7 +759,7 @@ object Strings {
         return when (l) { "ar" -> "ar"; "iw", "he" -> "iw"; else -> "en" }
     }
     fun isRtl(lang: String) = lang == "ar" || lang == "iw"
-    fun get(lang: String, key: String): String = (when (lang) { "ar" -> AR[key]; "iw" -> HE[key]; else -> null }) ?: EN[key] ?: key
+    fun get(lang: String, key: String): String = Strings2.get(lang, key) ?: (when (lang) { "ar" -> AR[key]; "iw" -> HE[key]; else -> null }) ?: EN[key] ?: key
 }
 
 val LocalLang = compositionLocalOf { "en" }

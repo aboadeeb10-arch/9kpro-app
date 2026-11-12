@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -43,6 +46,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,12 +74,13 @@ fun PlaylistScreen() {
     val go: () -> Unit = { if (!preparing) { preparing = true; scope.launch { repo.prepareActive(); preparing = false; nav.reset(Screen.Main(0)) } } }
     if (preparing) androidx.compose.material3.AlertDialog(onDismissRequest = {}, confirmButton = {}, title = { Text(stringResource(R.string.loading)) },
         text = { Row(verticalAlignment = Alignment.CenterVertically) { androidx.compose.material3.CircularProgressIndicator(color = c.accent, modifier = Modifier.size(28.dp)); Spacer(Modifier.width(14.dp)); Text(stringResource(R.string.loading_playlist) + (if (prog > 1) "  " + prog + "/12" else ""), fontSize = 14.sp) } })
-    Box(Modifier.fillMaxSize()) {
+    // imePadding + a scrollable form: the phone keyboard no longer covers the password field / Sign in button
+    Box(Modifier.fillMaxSize().imePadding()) {
         var showForm by remember { mutableStateOf(playlists.isEmpty()) }
         Row(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             // left: logo · login form · MAC
             Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Column(Modifier.widthIn(max = 400.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.widthIn(max = 400.dp).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
                     BrandLogo(brand.logo, Modifier.fillMaxWidth(0.55f).height(64.dp))
                     Gap(10)
                     if (showForm || playlists.isEmpty()) LoginForm(onDone = { go() })
@@ -84,22 +90,34 @@ fun PlaylistScreen() {
                         Column(Modifier.weight(1f)) { Text(stringResource(R.string.mac_address), color = c.muted, fontSize = 10.5.sp); Text(repo.prefs.deviceMac(), color = c.text, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                         Column(horizontalAlignment = Alignment.End) { Text(stringResource(R.string.device_key), color = c.muted, fontSize = 10.5.sp); Text(repo.prefs.deviceKey(), color = c.accent, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                     }
+                    // The seller adds a playlist to this MAC from the panel → Refresh picks it up (also checked automatically every 15 s while this screen is open).
+                    var checking by remember { mutableStateOf(false) }; var checkMsg by remember { mutableStateOf("") }
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    val check: (Boolean) -> Unit = { manual -> if (!checking) { checking = true; scope.launch { val ok = repo.checkDevice(manual); checking = false
+                        if (ok && repo.activePlaylist != null) go() else if (manual) { checkMsg = ctx.getString(R.string.no_playlist_yet); try { android.widget.Toast.makeText(ctx, checkMsg, android.widget.Toast.LENGTH_SHORT).show() } catch (e: Exception) {} } } } }
+                    Gap(8)
+                    BigButton(if (checking) stringResource(R.string.loading) else stringResource(R.string.refresh_device), Icons.Default.Refresh, filled = false, modifier = Modifier.fillMaxWidth()) { check(true) }
+                    // not after "Sign out": the customer must press Refresh or sign in himself (otherwise the TV logged itself back in through its MAC)
+                    if (playlists.isEmpty() && !repo.prefs.loggedOut) LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(15_000); if (nav.current is Screen.Playlists && !repo.prefs.loggedOut) check(false) } }
                 }
             }
             // right: playlists already on the device
             if (playlists.isNotEmpty()) { Spacer(Modifier.width(24.dp))
                 Column(Modifier.weight(1f).fillMaxHeight().padding(vertical = 8.dp)) {
                     SectionTitle(stringResource(R.string.playlists).uppercase())
-                    androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f)) {
+                    androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).restoreFocus()) {
                         items(playlists, key = { it.id }) { pl ->
                             val active = pl.id == repo.prefs.activePlaylistId
-                            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(10.dp)).glass(c, 10, active).tvFocus(c.accent, 10).clickable { repo.prefs.activePlaylistId = pl.id; go() }.padding(12.dp, 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text((if (pl.fromPanel && pl.user.isNotEmpty() && !pl.protect) pl.user + " · " else "") + pl.name + (if (pl.trial) " ⚡" else ""), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(if (active) stringResource(R.string.connected) else if (pl.fromPanel) stringResource(R.string.protected_pl) else pl.kind.uppercase(), color = if (active) c.accent else c.muted, fontSize = 11.sp)
+                            // TV remote: the delete button is a SIBLING of the clickable card (a button nested inside a clickable row can't be reached)
+                            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(10.dp)).glass(c, 10, active), verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).tvFocus(c.accent, 10).clickable { repo.prefs.activePlaylistId = pl.id; go() }.padding(12.dp, 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text((if (pl.fromPanel && pl.user.isNotEmpty() && !pl.protect) pl.user + " · " else "") + pl.name + (if (pl.trial) " ⚡" else ""), color = c.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(if (active) stringResource(R.string.connected) else if (pl.fromPanel) stringResource(R.string.protected_pl) else pl.kind.uppercase(), color = if (active) c.accent else c.muted, fontSize = 11.sp)
+                                    }
+                                    Text(fwdArrow(), color = c.muted, fontSize = 20.sp)
                                 }
-                                if (!pl.fromPanel) IconButton(onClick = { repo.removeManualPlaylist(pl.id) }, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Delete, null, tint = c.muted, modifier = Modifier.size(15.dp)) }
-                                Text("›", color = c.muted, fontSize = 20.sp)
+                                if (!pl.fromPanel) IconButton(onClick = { repo.removeManualPlaylist(pl.id) }, modifier = Modifier.padding(end = 4.dp).size(32.dp).tvFocus(c.accent, 16)) { Icon(Icons.Default.Delete, stringResource(R.string.remove), tint = c.muted, modifier = Modifier.size(15.dp)) }
                             }
                         }
                     }
@@ -120,15 +138,15 @@ fun LoginForm(onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     val errText = when (err) { "" -> ""; "wrong_login" -> stringResource(R.string.error_login); "blocked", "device_blocked" -> stringResource(R.string.error_blocked); "expired" -> stringResource(R.string.error_expired); "network" -> stringResource(R.string.error_network); else -> err }
     Column(Modifier.fillMaxWidth()) {
-        if (!useCode) { Field(user, { user = it }, stringResource(R.string.username)); Gap(8); Field(pass, { pass = it }, stringResource(R.string.password), password = true) }
-        else Field(code, { code = it.filter { ch -> ch.isDigit() }.take(6) }, stringResource(R.string.code))
-        Gap(12)
-        BigButton(if (busy) stringResource(R.string.loading) else stringResource(R.string.sign_in), modifier = Modifier.fillMaxWidth()) {
-            if (busy) return@BigButton
-            if (!useCode && (user.isBlank() || pass.isBlank())) return@BigButton
-            if (useCode && code.length < 6) return@BigButton
-            busy = true; err = ""; scope.launch { val e = if (useCode) repo.codeLogin(code) else repo.login(user.trim(), pass); busy = false; if (e == null) onDone() else err = e }
+        val signIn: () -> Unit = {
+            if (!busy && !(!useCode && (user.isBlank() || pass.isBlank())) && !(useCode && code.length < 6)) {
+                busy = true; err = ""; scope.launch { val e = if (useCode) repo.codeLogin(code) else repo.login(user.trim(), pass); busy = false; if (e == null) onDone() else err = e }
+            }
         }
+        if (!useCode) { Field(user, { user = it }, stringResource(R.string.username), imeAction = ImeAction.Next); Gap(8); Field(pass, { pass = it }, stringResource(R.string.password), password = true, keyboardType = KeyboardType.Password, imeAction = ImeAction.Go, onImeAction = signIn) }
+        else Field(code, { code = it.filter { ch -> ch.isDigit() }.take(6) }, stringResource(R.string.code), keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Go, onImeAction = signIn)
+        Gap(12)
+        BigButton(if (busy) stringResource(R.string.loading) else stringResource(R.string.sign_in), modifier = Modifier.fillMaxWidth(), onClick = signIn)
         if (errText.isNotEmpty()) { Gap(8); Text(errText, color = Color(0xFFFF6B7A), fontSize = 13.sp) }
         Gap(8)
         Text(if (useCode) stringResource(R.string.use_password) else stringResource(R.string.use_code), color = c.accent, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally).clip(RoundedCornerShape(6.dp)).tvFocus(c.accent, 6).clickable { useCode = !useCode; err = "" }.padding(6.dp, 4.dp))

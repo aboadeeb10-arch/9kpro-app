@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="see_all">הצג הכול</string>
+    <string name="type_two_letters">הקלד לפחות 2 אותיות</string>
+    <string name="recent_searches">חיפושים אחרונים</string>
+    <string name="clear_recent">נקה</string>
+    <string name="searching">מחפש…</string>
+    <string name="update_available">גרסה %1$s זמינה</string>
+    <string name="update">עדכון</string>
+    <string name="update_downloading">מוריד עדכון… %1$d%%</string>
+    <string name="update_installing">מתקין…</string>
+    <string name="update_failed">ההורדה נכשלה — לחץ לניסיון חוזר</string>
+    <string name="update_ready">העדכון הורד — לחץ להתקנה</string>
+    <string name="update_allow">אפשר התקנת עדכונים מ-9K Pro TV ואז לחץ שוב על עדכון</string>
+    <string name="update_browser">פתח בדפדפן</string>
+    <string name="update_app">עדכון האפליקציה</string>
+    <string name="update_to">עדכון ל-%1$s</string>
+    <string name="update_none">יש לך את הגרסה האחרונה</string>
+    <string name="remind_me">הזכר לי</string>
+    <string name="remove_reminder">בטל תזכורת</string>
+</resources>

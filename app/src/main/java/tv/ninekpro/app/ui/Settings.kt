@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Support
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Videocam
@@ -79,7 +80,7 @@ import tv.ninekpro.app.data.Kind
 @Composable
 fun SettingsScreen(themeMode: String, onTheme: (String) -> Unit) {
     val repo = LocalRepo.current; val nav = LocalNav.current; val c = LocalColors.current; val act = LocalActivity.current
-    val brand by repo.brand.collectAsState()
+    val brand by repo.brand.collectAsState(); val scope = rememberCoroutineScope()
     var panel by remember { mutableStateOf("") }
     var add by remember { mutableStateOf(false) }
     androidx.activity.compose.BackHandler(enabled = panel.isNotEmpty()) { panel = "" }
@@ -109,16 +110,17 @@ fun SettingsScreen(themeMode: String, onTheme: (String) -> Unit) {
                 item { Tile(stringResource(R.string.time_format), Icons.Default.Schedule) { panel = "time" } }
                 item { Tile(stringResource(R.string.subtitle_settings), Icons.Default.ClosedCaption) { panel = "subs" } }
                 item { Tile(stringResource(R.string.device_type), Icons.Default.Devices) { panel = "device" } }
-                item { Tile(stringResource(R.string.update_now), Icons.Default.Refresh) { repo.forceReload(); repo.syncNow(); nav.reset(Screen.Main(0)) } }
+                item { Tile(stringResource(R.string.update_now), Icons.Default.Refresh) { scope.launch { repo.refreshAll(); repo.syncNow() }; nav.reset(Screen.Main(0)) } }
                 item { Tile(stringResource(R.string.parental_onoff), if (repo.prefs.parentalOn) Icons.Default.Lock else Icons.Default.LockOpen) { panel = "ponoff" } }
                 item { Tile(stringResource(R.string.theme), Icons.Default.Palette) { panel = "theme" } }
                 item { Tile(stringResource(R.string.speed_test), Icons.Default.Speed) { panel = "speed" } }
                 item { Tile(stringResource(R.string.support), Icons.Default.Support) { panel = "support" } }
+                if (!BuildConfig.PLAY_BUILD) item { Tile(stringResource(R.string.update_app), Icons.Default.SystemUpdate) { panel = "update" } }
                 item { Tile(stringResource(R.string.report_problem), Icons.Default.BugReport) { panel = "report"; Thread { tv.ninekpro.app.Crash.send("REPORT from Settings\nplaylist=" + (repo.activePlaylist?.name ?: "-") + " engine=" + repo.prefs.playerEngine + " format=" + repo.prefs.liveFormat + " lite=" + tv.ninekpro.app.data.DeviceInfo.lite + " tv=" + tv.ninekpro.app.data.DeviceInfo.isTv + "\nlast error: " + (tv.ninekpro.app.Crash.lastTrace(act) ?: "none")) }.start() } }
                 item { Tile(stringResource(R.string.logout), Icons.Default.Logout) { repo.logout(); nav.reset(Screen.Playlists) } }
             } else Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 8.dp)) {
                 when (panel) {
-                    "pin" -> { var pin by remember { mutableStateOf(repo.pin) }; SectionTitle(stringResource(R.string.parental).uppercase()); Field(pin, { pin = it.filter { ch -> ch.isDigit() }.take(6); repo.pin = pin }, stringResource(R.string.set_pin), password = true); Gap(8); Text(stringResource(R.string.parental_hint), color = c.muted, fontSize = 12.sp) }
+                    "pin" -> { var pin by remember { mutableStateOf(repo.pin) }; SectionTitle(stringResource(R.string.parental).uppercase()); Field(pin, { pin = it.filter { ch -> ch.isDigit() }.take(6); repo.pin = pin }, stringResource(R.string.set_pin), password = true, keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword, imeAction = androidx.compose.ui.text.input.ImeAction.Done); Gap(8); Text(stringResource(R.string.parental_hint), color = c.muted, fontSize = 12.sp) }
                     "ponoff" -> { var on by remember { mutableStateOf(repo.prefs.parentalOn) }; ToggleRow(stringResource(R.string.parental_onoff), on) { on = it; repo.prefs.parentalOn = it } }
                     "lang" -> { SectionTitle(stringResource(R.string.change_language).uppercase()); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("" to "Auto", "en" to "English", "ar" to "العربية", "iw" to "עברית").forEach { (k, n) -> Pill(n, repo.prefs.language == k) { repo.prefs.language = k; act.recreate() } } } }
                     "layout" -> { SectionTitle(stringResource(R.string.change_layout).uppercase()); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("large" to R.string.layout_large, "normal" to R.string.layout_normal, "compact" to R.string.layout_compact).forEach { (k, r) -> Pill(stringResource(r), repo.prefs.layoutSize == k) { repo.prefs.layoutSize = k; panel = ""; panel = "layout" } } } }
@@ -146,16 +148,33 @@ fun SettingsScreen(themeMode: String, onTheme: (String) -> Unit) {
                     "done" -> { Text("✓ " + stringResource(R.string.ok), color = c.text, fontSize = 16.sp) }
                     "report" -> { Text("✓ " + stringResource(R.string.report_sent), color = c.text, fontSize = 16.sp) }
                     "speed" -> SpeedTestPanel()
+                    "update" -> UpdatePanel()
                 }
             }
         }
         Column(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Mac Address: " + repo.prefs.deviceMac(), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Text("Device Key: " + repo.prefs.deviceKey(), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.mac_address) + ": " + repo.prefs.deviceMac(), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.device_key) + ": " + repo.prefs.deviceKey(), color = c.text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             Text("v" + BuildConfig.VERSION_NAME, color = c.muted, fontSize = 11.sp)
         }
     }
     if (add) AddPlaylistDialog(onClose = { add = false })
+}
+
+/** Settings → App update (sideload only): asks the panel right now (no 24 h cache) and shows the same banner as Home: "Update to X" → in-app download + install. */
+@Composable
+fun UpdatePanel() {
+    val repo = LocalRepo.current; val c = LocalColors.current; val act = LocalActivity.current
+    var info by remember { mutableStateOf<tv.ninekpro.app.data.UpdateInfo?>(null) }
+    var checked by remember { mutableStateOf(false) }
+    val pending by tv.ninekpro.app.data.Updater.pendingInfo.collectAsState()
+    LaunchedEffect(Unit) { try { tv.ninekpro.app.data.Updater.restore(act, BuildConfig.VERSION_CODE) } catch (e: Throwable) {}; info = try { repo.checkUpdate(force = true) } catch (e: Throwable) { null }; checked = true }
+    SectionTitle(stringResource(R.string.update_app).uppercase())
+    Text("v" + BuildConfig.VERSION_NAME, color = c.muted, fontSize = 12.sp); Gap(8)
+    val u: tv.ninekpro.app.data.UpdateInfo? = info?.takeIf { it.code > BuildConfig.VERSION_CODE } ?: pending
+    if (u != null) { Text(stringResource(R.string.update_to, u.name.ifEmpty { u.code.toString() }), color = c.text, fontSize = 15.sp, fontWeight = FontWeight.Bold); Gap(4); UpdateBanner(u) }
+    else if (!checked) Text(stringResource(R.string.loading), color = c.muted, fontSize = 13.sp)
+    else Text(stringResource(R.string.update_none), color = c.text, fontSize = 14.sp)
 }
 
 /** Hide Live / VOD / Series categories: a checkbox list, saved to the profile (synced). */

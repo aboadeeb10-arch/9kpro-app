@@ -9,7 +9,10 @@ import java.util.concurrent.TimeUnit
 
 object AppInfo {
     const val PANEL_URL = "https://9kpro-panel.vercel.app"
-    const val VERSION = "1.0.3"
+    /** ONE source of truth: desktop/build.gradle.kts `version` — Gradle writes it into resources/version.properties at build time. */
+    val VERSION: String by lazy {
+        try { val p = java.util.Properties(); AppInfo::class.java.getResourceAsStream("/version.properties")?.use { p.load(it) }; p.getProperty("version", "").trim().ifEmpty { "0.0.0" } } catch (e: Throwable) { "0.0.0" }
+    }
     /** Installers are release assets of the public downloads repo (no size limit). */
     const val DOWNLOADS_URL = "https://github.com/aboadeeb10-arch/9kpro-downloads/releases/download/desktop/"
     val platform: String get() = if (AppDirs.isWindows) "windows" else if (AppDirs.isMac) "mac" else "linux"
@@ -51,5 +54,8 @@ class PanelApi(private val prefs: Prefs) {
     fun crashTrial() = post("crash_trial")
     fun crashEnd() = post("crash_end")
     fun matches(date: String) = post("matches", JSONObject().put("date", date))
+    fun weather() = post("weather")
+    /** Crash / fatal error report (no token needed — the app may be broken before it has one). `android` carries the OS name on PC. */
+    fun crash(trace: String) = post("app_crash", JSONObject().put("trace", trace.take(12000)).put("android", AppInfo.model), auth = false)
     fun messagesSeen(ids: List<Int>) = post("messages_seen", JSONObject().put("ids", org.json.JSONArray(ids)))
 }

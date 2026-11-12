@@ -166,6 +166,7 @@
     <string name="matches_today">مباريات اليوم</string>
     <string name="match_channels">القنوات التي تعرض المباراة</string>
     <string name="match_no_channel">لم يتم العثور على قناة في الدليل بعد — جرّب قسم الرياضة في البث المباشر.</string>
+    <string name="match_sports_only">لا توجد معلومات عن هذه المباراة في الدليل بعد — هذه قنوات الرياضة لديك، اضغط على واحدة لتجربتها.</string>
     <string name="match_soon">المباراة تبدأ خلال 5 دقائق — اضغط للفتح</string>
     <string name="change_server">تغيير السيرفر</string>
     <string name="servers">السيرفرات</string>
@@ -215,6 +216,18 @@
     <string name="speed_verdict_hd">جيد لـ HD</string>
     <string name="speed_verdict_4k">ممتاز — جاهز لـ 4K</string>
     <string name="speed_fail">تعذر الوصول إلى السيرفر</string>
+    <string name="record">تسجيل</string>
+    <string name="recording">جارٍ التسجيل…</string>
+    <string name="stop_recording">إيقاف</string>
+    <string name="recording_saved">تم حفظ التسجيل في التنزيلات</string>
+    <string name="record_scheduled">تمت جدولة التسجيل (اضغط مطولاً مرة أخرى للإلغاء)</string>
+    <string name="record_unscheduled">تم إلغاء التسجيل</string>
+    <string name="reorder_hint">اسحب لإعادة الترتيب · اضغط تم عند الانتهاء</string>
+    <string name="done">تم</string>
+    <string name="move">نقل (إعادة ترتيب)</string>
+    <string name="scan_wa_renew">امسح للتجديد عبر واتساب</string>
+    <string name="refresh_device">تحديث — تحقق من وجود اشتراكي</string>
+    <string name="no_playlist_yet">لا يوجد اشتراك لهذا الجهاز بعد — تواصل مع البائع.</string>
     <string name="speed_internet">سرعة الإنترنت</string>
     <string name="speed_server">سيرفرك</string>
     <string name="speed_jitter">تذبذب</string>
@@ -226,14 +239,4 @@
     <string name="speed_step_down">سرعة الإنترنت</string>
     <string name="speed_step_stream">بث السيرفر</string>
     <string name="speed_hint">يقيس سرعة خط الإنترنت ويتأكد أن سيرفرك يرسل الفيديو. يستغرق حوالي 15 ثانية.</string>
-    <string name="record">تسجيل</string>
-    <string name="recording">جارٍ التسجيل…</string>
-    <string name="stop_recording">إيقاف</string>
-    <string name="recording_saved">تم حفظ التسجيل في التنزيلات</string>
-    <string name="record_scheduled">تمت جدولة التسجيل (اضغط مطولاً مرة أخرى للإلغاء)</string>
-    <string name="record_unscheduled">تم إلغاء التسجيل</string>
-    <string name="reorder_hint">اسحب لإعادة الترتيب · اضغط تم عند الانتهاء</string>
-    <string name="done">تم</string>
-    <string name="move">نقل (إعادة ترتيب)</string>
-    <string name="scan_wa_renew">امسح للتجديد عبر واتساب</string>
 </resources>

@@ -33,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -96,7 +97,10 @@ fun MovieScreen(item: Item) {
                     if (people.isNotEmpty()) { Gap(12); SectionTitle(stringResource(R.string.cast).uppercase()); CastRow(people) }
                     Gap(16)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        BigButton(if (resume != null) stringResource(R.string.resume) + " " + fmtTime(resume.positionMs) else stringResource(R.string.play), Icons.Default.PlayArrow) { scope.launch { playItem(repo, nav, pl, item, startMs = resume?.positionMs ?: 0L) } }
+                        // TV: Play / Resume is highlighted as soon as the page opens — one OK press starts the movie
+                        val playFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+                        LaunchedEffect(Unit) { kotlinx.coroutines.delay(120); try { playFocus.requestFocus() } catch (e: Exception) {} }
+                        BigButton(if (resume != null) stringResource(R.string.resume) + " " + fmtTime(resume.positionMs) else stringResource(R.string.play), Icons.Default.PlayArrow, modifier = Modifier.focusRequester(playFocus)) { scope.launch { playItem(repo, nav, pl, item, startMs = resume?.positionMs ?: 0L) } }
                         if (resume != null) BigButton(stringResource(R.string.start_over), null, filled = false) { repo.removeResume(item.key); scope.launch { playItem(repo, nav, pl, item, startMs = 0L) } }
                         if (trailer.isNotEmpty()) BigButton(stringResource(R.string.trailer), Icons.Default.Slideshow, filled = false) { try { act.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailer))) } catch (e: Exception) {} }
                         BigButton(stringResource(R.string.download), Icons.Default.Download, filled = false) { scope.launch { val u = repo.streamUrl(pl, item); Downloads.enqueue(nav, repo, u, item.name, item.ext) } }

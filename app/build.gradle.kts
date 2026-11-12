@@ -11,8 +11,8 @@ android {
         applicationId = "tv.ninekpro.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.0.5"
+        versionCode = 7
+        versionName = "1.1.0"
         buildConfigField("String", "PANEL_URL", "\"https://9kpro-panel.vercel.app\"")
         vectorDrawables.useSupportLibrary = true
         // Phones + Android TV boxes are ARM. Dropping x86 halves the APK (libVLC ships one 40 MB blob per CPU).
@@ -35,11 +35,15 @@ android {
     }
     buildTypes {
         release {
-            // R8 shrinking ON (v0.8.3+). Rules in proguard-rules.pro keep libVLC / Cast / receivers whole; mapping.txt is uploaded with each build.
+            // R8 shrinking ON (v0.8.3+). proguard-rules.pro keeps only our own entry points + libVLC's JNI classes (libraries ship consumer rules); both mapping files are attached to each build.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // On CI a release MUST be signed with the permanent key: a debug-signed APK/AAB would not install over the
+            // customers' app and Play would reject it. Locally (no JDK/keystore) the debug key is still allowed for testing.
+            val onCi = System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") != null
             if (System.getenv("KEYSTORE_PATH") != null) signingConfig = signingConfigs.getByName("release")
+            else if (onCi) error("release build without KEYSTORE_PATH — secrets KEYSTORE_B64 / KEYSTORE_PASSWORD missing in CI")
             else signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -48,7 +52,16 @@ android {
     buildFeatures { compose = true; buildConfig = true }
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/DEPENDENCIES")
-        jniLibs.useLegacyPackaging = true   // compress native libs inside the APK (much smaller download)
+        // Sideload APK: compress native libs inside the APK (much smaller download from the panel site).
+        // The Play flavor overrides this below — Play serves split APKs already compressed, and legacy packaging would
+        // make Android extract libVLC to disk (stored twice on the device).
+        jniLibs.useLegacyPackaging = true
+    }
+}
+
+androidComponents {
+    onVariants(selector().withFlavor("dist" to "play")) { variant ->
+        variant.packaging.jniLibs.useLegacyPackaging.set(false)
     }
 }
 

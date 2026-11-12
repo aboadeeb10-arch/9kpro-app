@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="err_line">המנוי שלך פג או בשימוש במכשיר אחר</string>
+    <string name="err_not_found">הערוץ לא זמין בשרת הזה — נסה החלפת שרת</string>
+    <string name="err_connect">השרת עמוס או לא פעיל — נסה שוב, החלף שרת או תיקון תקלה</string>
+    <string name="err_generic">לא ניתן לנגן את השידור</string>
+    <string name="err_trying">מנסה שרת אחר…</string>
+    <string name="err_back">חזרה</string>
+    <string name="err_back_to_exo">נסה ExoPlayer</string>
+</resources>

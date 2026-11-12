@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -84,11 +85,11 @@ fun GuideScreen() {
         }
         Box(Modifier.fillMaxSize()) {
             LazyColumn(Modifier.fillMaxSize()) {
-                items(list, key = { it.key }) { ch ->
+                itemsIndexed(list, key = { _, it -> it.key }) { idx, ch ->
                     val progs = remember(ev, ch.key) { repo.epgFor(pl, ch).filter { it.stop > start && it.start < end } }
                     Row(Modifier.fillMaxWidth().height(54.dp)) {
                         Row(Modifier.width(CH_COL.dp).fillMaxHeight().background(c.card2).tvFocus(c.accent, 0).clickable { repo.liveContext = list; scope.launch { playItem(repo, nav, pl, ch) } }.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (ch.num > 0) ch.num.toString() else "", color = c.muted, fontSize = 11.sp, modifier = Modifier.width(26.dp))
+                            Text((idx + 1).toString(), color = c.muted, fontSize = 11.sp, modifier = Modifier.width(26.dp))
                             Poster(ch.icon, Modifier.size(36.dp, 24.dp), contentScaleFit = true); Spacer(Modifier.width(6.dp))
                             Text(ch.name, color = c.text, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
@@ -103,7 +104,7 @@ fun GuideScreen() {
                                     Box(Modifier.width(secsDp(pe - ps)).fillMaxHeight().padding(1.dp).clip(RoundedCornerShape(4.dp))
                                         .background(if (isNow) c.accent.copy(alpha = 0.28f) else if (past) c.card.copy(alpha = 0.5f) else c.card).border(0.5.dp, if (isNow) c.accent else c.line, RoundedCornerShape(4.dp)).tvFocus(c.accent, 4)
                                         .combinedClickable(onLongClick = { if (!past) { scope.launch { try { val u = repo.streamUrl(pl, ch, ts = true); val on = repo.toggleRecSchedule(ch.key, p.start, p.stop, u, ch.name + " · " + p.title); android.widget.Toast.makeText(act, (if (on) "● " + act.getString(R.string.record_scheduled) else act.getString(R.string.record_unscheduled)) + " · " + p.title, android.widget.Toast.LENGTH_SHORT).show() } catch (e: Exception) {} } } }) { repo.liveContext = list; if (!isNow && !past) { if (android.os.Build.VERSION.SDK_INT >= 33 && act.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) act.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7); val on = repo.toggleProgReminder(ch.key, p.start, p.title, ch.name); android.widget.Toast.makeText(act, (if (on) "⏰ " + act.getString(R.string.reminder_set) else act.getString(R.string.reminder_off)) + " · " + p.title, android.widget.Toast.LENGTH_SHORT).show() }
-                                            else scope.launch { try { if (isNow) playItem(repo, nav, pl, ch) else if (past && ch.archive) { val u = repo.catchupUrl(pl, ch, p); nav.push(Screen.Play(u, p.title, "cu:" + ch.id + ":" + p.start, Kind.MOVIE, ch.icon, startMs = 0L)) } } catch (e: Exception) {} } }
+                                            else scope.launch { try { LiveEngine.handoff = false; if (isNow) playItem(repo, nav, pl, ch) else if (past && ch.archive) { val u = repo.catchupUrl(pl, ch, p); nav.push(Screen.Play(u, p.title, "cu:" + ch.id + ":" + p.start, Kind.MOVIE, ch.icon, startMs = 0L)) } } catch (e: Exception) {} } }
                                         .padding(horizontal = 6.dp), contentAlignment = Alignment.CenterStart) {
                                         Column { Text(p.title, color = if (past) c.muted else c.text, fontSize = 12.sp, fontWeight = if (isNow) FontWeight.Bold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                             Text(tfmt.format(java.util.Date(p.start * 1000)) + (if (past && ch.archive) "  ⏪" else if (!past && !isNow && pv >= 0 && repo.hasProgReminder(ch.key, p.start)) "  ⏰" else "") + (if (!past && pv >= 0 && repo.hasRecSchedule(ch.key, p.start)) "  ●" else ""), color = if (!past && !isNow && repo.hasProgReminder(ch.key, p.start)) c.accent else if (!past && repo.hasRecSchedule(ch.key, p.start)) Color(0xFFE11D48) else c.muted, fontSize = 10.sp, maxLines = 1) }

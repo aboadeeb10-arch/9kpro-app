@@ -1,21 +1,26 @@
 # ---- 9K Pro TV release rules (R8) ----
-# Keep our data models / JSON helpers whole (read with reflection-free code, but Parcelable/receivers must stay named)
+# Only the app's own entry points and models are kept here. Libraries (Media3, Cast/GMS, MediaRouter, OkHttp, Coil,
+# Compose, coroutines) ship their own consumer rules inside their AARs — library-wide "-keep ... { *; }" lines just
+# bloat the APK and defeat shrinking. Add a keep ONLY for something the app itself looks up by name / reflection.
+
+# Our data models / JSON helpers whole (Parcelable + classes referenced from the manifest must stay named)
 -keep class tv.ninekpro.app.data.** { *; }
 -keep class tv.ninekpro.app.** extends android.content.BroadcastReceiver { *; }
 -keep class tv.ninekpro.app.** extends android.app.Service { *; }
 -keep class tv.ninekpro.app.** extends android.appwidget.AppWidgetProvider { *; }
+# Looked up by name from the manifest <meta-data> by the Cast SDK
 -keep class tv.ninekpro.app.CastOptionsProvider { *; }
 -keep class tv.ninekpro.app.MainActivity { *; }
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
-# libVLC talks to Java through JNI — keep it whole
--keep class org.videolan.** { *; }
+# libVLC: native code calls back into org.videolan.libvlc Java classes by name (JNI GetMethodID), and the AAR's
+# consumer rules are not guaranteed. The Java side is tiny (the 40 MB is the .so, untouched by R8) — keep it whole.
+-keep class org.videolan.libvlc.** { *; }
 -dontwarn org.videolan.**
 
-# Media3 / ExoPlayer
+# Media3 / ExoPlayer (consumer rules in the AAR)
 -dontwarn androidx.media3.**
--keep class androidx.media3.** { *; }
 
 # OkHttp / Okio
 -dontwarn okhttp3.**
@@ -29,17 +34,12 @@
 # Coil
 -dontwarn coil.**
 
-# Google Cast / MediaRouter (OptionsProvider is looked up by name from the manifest)
--keep class com.google.android.gms.cast.** { *; }
--keep class com.google.android.gms.common.** { *; }
+# Google Cast / MediaRouter / TV provider (consumer rules in the AARs; our OptionsProvider is kept above)
 -dontwarn com.google.android.gms.**
--keep class androidx.mediarouter.** { *; }
+-dontwarn androidx.mediarouter.**
+-dontwarn androidx.tvprovider.**
 
-# TV provider (home-screen channels)
--keep class androidx.tvprovider.** { *; }
-
-# ZXing
--keep class com.google.zxing.** { *; }
+# ZXing (pure Java, no reflection)
 -dontwarn com.google.zxing.**
 
 # Kotlin / coroutines

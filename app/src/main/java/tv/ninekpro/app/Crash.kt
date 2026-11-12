@@ -2,6 +2,8 @@ package tv.ninekpro.app
 
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -50,10 +52,10 @@ object Crash {
 
     fun lastTrace(ctx: Context): String? = ctx.getSharedPreferences(SP, Context.MODE_PRIVATE).getString("trace", null)
 
-    /** Called when the app reached its UI normally: clear the streak and send anything not yet reported. */
+    /** Called when the app reached its UI normally: send anything not yet reported. The crash streak is cleared only once the app survived 20 s — a crash during the first draw must still count towards the "two crashes → show the trace" net. */
     fun onAppStarted(ctx: Context) {
         val sp = ctx.getSharedPreferences(SP, Context.MODE_PRIVATE)
-        sp.edit().putInt("streak", 0).apply()
+        Handler(Looper.getMainLooper()).postDelayed({ try { sp.edit().putInt("streak", 0).apply() } catch (_: Throwable) {} }, 20_000L)
         if (sp.getBoolean("unsent", false)) { val t = sp.getString("trace", "") ?: ""; Thread { if (send(t)) sp.edit().putBoolean("unsent", false).apply() }.start() }
     }
 

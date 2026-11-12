@@ -77,6 +77,19 @@ class Prefs(ctx: Context) {
     var reminders: Set<Long>
         get() = (sp.getStringSet("reminders", emptySet()) ?: emptySet()).mapNotNull { it.toLongOrNull() }.toSet()
         set(v) = sp.edit().putStringSet("reminders", v.map { it.toString() }.toSet()).apply()
+    /** "id|kickoff|title" per match reminder — what BootReceiver needs to re-arm the alarm after a reboot. */
+    var reminderMatches: Set<String>
+        get() = sp.getStringSet("reminder_matches", emptySet()) ?: emptySet()
+        set(v) = sp.edit().putStringSet("reminder_matches", v).apply()
+
+    /** Movies / Series sort per tab: default | az | new | rating. */
+    fun vodSort(kind: Kind): String = str("vodSort_" + kind.name, "new")
+    fun setVodSort(kind: Kind, v: String) = put("vodSort_" + kind.name, v)
+
+    /** Last time the sideload build asked the panel for a newer APK (ms). */
+    var updateCheckedAt: Long get() = sp.getLong("updateCheckedAt", 0L); set(v) = sp.edit().putLong("updateCheckedAt", v).apply()
+    /** Playlist ids were moved from position-based ("p0_user") to content-based ("p_xtream_panel_user") once. */
+    var plIdV2: Boolean get() = sp.getBoolean("plIdV2", false); set(v) = sp.edit().putBoolean("plIdV2", v).apply()
 
     var lastSync: Long
         get() = sp.getLong("lastSync", 0L)
@@ -120,4 +133,9 @@ class Prefs(ctx: Context) {
     fun deviceKey(): String { val h = (deviceMac() + "key").hashCode().toUInt() % 900000u + 100000u; return h.toString() }
 
     fun clearSession() { sp.edit().remove("token").remove("account").remove("panelPl").remove("profile").remove("profileDirty").apply() }
+
+    /** Set by "Sign out": the app must not log this device in again by itself (MAC auto-login) until the customer signs in or presses Refresh. */
+    var loggedOut: Boolean get() = sp.getBoolean("loggedOut", false); set(v) = sp.edit().putBoolean("loggedOut", v).apply()
+    /** Sign out: forget the account and every playlist (panel ones and typed-in ones), profile and Crash Fix state. Language, theme, MAC, PIN and player settings stay. */
+    fun clearAll() { sp.edit().remove("token").remove("account").remove("panelPl").remove("manualPl").remove("activePl").remove("profile").remove("profileDirty").remove("lastSync").remove("crashUntil").remove("crashMainPl").remove("crashPlId").apply() }
 }

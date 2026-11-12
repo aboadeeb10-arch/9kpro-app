@@ -47,12 +47,22 @@ fun LoginScreen() {
             BrandLogo(brand.logo, Modifier.height(64.dp).fillMaxWidth())
             Spacer(Modifier.height(6.dp)); Text(T("login_title"), color = c.text, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(18.dp))
-            OutlinedTextField(user, { user = it }, label = { Text(T("username")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = fieldColors(c))
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(pass, { pass = it }, label = { Text(T("password")) }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), colors = fieldColors(c), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { go() }))
+            var byCode by remember { mutableStateOf(false) }; var code by remember { mutableStateOf("") }
+            fun goCode() { if (code.length < 6) return; scope.launch { busy = true; err = ""; val e = repo.codeLogin(code); busy = false
+                if (e == null) { nav.reset(Screen.Main); scope.launch { repo.prepareActive() } } else err = when (e) { "wrong_login" -> Strings.get(lang, "error_login"); "blocked", "device_blocked" -> Strings.get(lang, "error_blocked"); "network" -> Strings.get(lang, "error_network"); else -> e } } }
+            if (byCode) {
+                OutlinedTextField(code, { code = it.filter { ch -> ch.isDigit() }.take(6) }, label = { Text(T("code")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = fieldColors(c), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { goCode() }))
+                Spacer(Modifier.height(6.dp)); Text(T("code_hint"), color = c.muted, fontSize = 12.sp)
+            } else {
+                OutlinedTextField(user, { user = it }, label = { Text(T("username")) }, singleLine = true, modifier = Modifier.fillMaxWidth(), colors = fieldColors(c))
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(pass, { pass = it }, label = { Text(T("password")) }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), colors = fieldColors(c), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go), keyboardActions = KeyboardActions(onGo = { go() }))
+            }
             if (err.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(err, color = Color(0xFFFF6B7A), fontSize = 13.sp) }
             Spacer(Modifier.height(16.dp))
-            if (busy) Loading() else PBtn(T("sign_in"), primary = true, modifier = Modifier.fillMaxWidth()) { go() }
+            if (busy) Loading() else PBtn(T("sign_in"), primary = true, modifier = Modifier.fillMaxWidth()) { if (byCode) goCode() else go() }
+            Spacer(Modifier.height(10.dp))
+            Text(if (byCode) T("use_password") else T("code_login"), color = c.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { byCode = !byCode; err = "" }.padding(6.dp))
             Spacer(Modifier.height(14.dp)); Text(T("need_subscription"), color = c.muted, fontSize = 12.sp)
             if (Vlc.error.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text("Player: " + Vlc.error, color = Color(0xFFFF6B7A), fontSize = 11.sp) }
         }
@@ -62,7 +72,9 @@ fun LoginScreen() {
             Text(mac.uppercase(), color = c.text, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
             Spacer(Modifier.height(4.dp)); Text(T("device_key") + ": " + key, color = c.muted, fontSize = 13.sp)
             Spacer(Modifier.height(8.dp))
-            PBtn(T("copy")) { try { java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(mac.uppercase() + "  " + key), null); win.toast(Strings.get(lang, "copied")) } catch (e: Throwable) {} }
+            Row { PBtn(T("copy")) { try { java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(mac.uppercase() + "  " + key), null); win.toast(Strings.get(lang, "copied")) } catch (e: Throwable) {} }
+                Spacer(Modifier.width(8.dp)); var checking by remember { mutableStateOf(false) }
+                PBtn(if (checking) T("loading") else T("refresh_device")) { if (!checking) { checking = true; scope.launch { val ok = repo.checkDevice(); checking = false; if (ok && repo.activePlaylist != null) { nav.reset(Screen.Main); scope.launch { repo.prepareActive() } } else win.toast(Strings.get(lang, "no_playlist_yet")) } } } }
             Spacer(Modifier.height(10.dp)); Text(T("mac_id_hint"), color = c.muted, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             if (brand.whatsapp.isNotEmpty()) {
                 Spacer(Modifier.height(14.dp))

@@ -7,7 +7,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
+    <!-- sideload in-app update (data/Updater.kt): open the system installer for the downloaded APK -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <application
@@ -21,11 +24,12 @@
         android:usesCleartextTraffic="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.9KProTV">
+        <!-- Android 16 large screens: keep honouring the app's landscape lock (orientation is set in code, see App.kt) -->
+        <property android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY" android:value="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
             android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize">
@@ -37,11 +41,26 @@
         </activity>
         <receiver android:name=".RemindReceiver" android:exported="false" />
         <receiver android:name=".RecordReceiver" android:exported="false" />
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
         <meta-data android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME" android:value="tv.ninekpro.app.CastOptionsProvider" />
         <receiver android:name=".SmileWidget" android:exported="true" android:label="@string/app_name">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_smile_info" />
         </receiver>
         <service android:name=".DlService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <!-- Updater: hands the downloaded APK to the package installer as a content:// Uri -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

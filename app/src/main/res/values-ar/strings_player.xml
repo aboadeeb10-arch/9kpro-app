@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="err_line">اشتراكك منتهي أو مستخدم على جهاز آخر</string>
+    <string name="err_not_found">هذه القناة غير متوفرة على هذا السيرفر — جرّب تغيير السيرفر</string>
+    <string name="err_connect">السيرفر مشغول أو متوقف — حاول مجدداً، غيّر السيرفر أو استخدم إصلاح العطل</string>
+    <string name="err_generic">تعذر تشغيل هذا البث</string>
+    <string name="err_trying">جاري تجربة سيرفر آخر…</string>
+    <string name="err_back">رجوع</string>
+    <string name="err_back_to_exo">جرّب ExoPlayer</string>
+</resources>
